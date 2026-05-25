@@ -41,7 +41,6 @@
 #include "ti_msp_dl_config.h"
 
 DL_TimerG_backupConfig gPWM_BINBackup;
-DL_TimerG_backupConfig gENCODER_ABackup;
 
 /*
  *  ======== SYSCFG_DL_init ========
@@ -55,13 +54,11 @@ SYSCONFIG_WEAK void SYSCFG_DL_init(void)
     SYSCFG_DL_SYSCTL_init();
     SYSCFG_DL_PWM_AIN_init();
     SYSCFG_DL_PWM_BIN_init();
-    SYSCFG_DL_ENCODER_A_init();
     SYSCFG_DL_I2C_0_init();
     SYSCFG_DL_DEBUG_UART_init();
     SYSCFG_DL_SYSTICK_init();
     /* Ensure backup structures have no valid state */
 	gPWM_BINBackup.backupRdy 	= false;
-	gENCODER_ABackup.backupRdy 	= false;
 
 
 }
@@ -74,7 +71,6 @@ SYSCONFIG_WEAK bool SYSCFG_DL_saveConfiguration(void)
     bool retStatus = true;
 
 	retStatus &= DL_TimerG_saveConfiguration(PWM_BIN_INST, &gPWM_BINBackup);
-	retStatus &= DL_TimerG_saveConfiguration(ENCODER_A_INST, &gENCODER_ABackup);
 
     return retStatus;
 }
@@ -85,7 +81,6 @@ SYSCONFIG_WEAK bool SYSCFG_DL_restoreConfiguration(void)
     bool retStatus = true;
 
 	retStatus &= DL_TimerG_restoreConfiguration(PWM_BIN_INST, &gPWM_BINBackup, false);
-	retStatus &= DL_TimerG_restoreConfiguration(ENCODER_A_INST, &gENCODER_ABackup, false);
 
     return retStatus;
 }
@@ -96,7 +91,6 @@ SYSCONFIG_WEAK void SYSCFG_DL_initPower(void)
     DL_GPIO_reset(GPIOB);
     DL_TimerG_reset(PWM_AIN_INST);
     DL_TimerG_reset(PWM_BIN_INST);
-    DL_TimerG_reset(ENCODER_A_INST);
     DL_I2C_reset(I2C_0_INST);
     DL_UART_Main_reset(DEBUG_UART_INST);
 
@@ -105,7 +99,6 @@ SYSCONFIG_WEAK void SYSCFG_DL_initPower(void)
     DL_GPIO_enablePower(GPIOB);
     DL_TimerG_enablePower(PWM_AIN_INST);
     DL_TimerG_enablePower(PWM_BIN_INST);
-    DL_TimerG_enablePower(ENCODER_A_INST);
     DL_I2C_enablePower(I2C_0_INST);
     DL_UART_Main_enablePower(DEBUG_UART_INST);
 
@@ -123,9 +116,6 @@ SYSCONFIG_WEAK void SYSCFG_DL_GPIO_init(void)
     DL_GPIO_enableOutput(GPIO_PWM_BIN_C0_PORT, GPIO_PWM_BIN_C0_PIN);
     DL_GPIO_initPeripheralOutputFunction(GPIO_PWM_BIN_C1_IOMUX,GPIO_PWM_BIN_C1_IOMUX_FUNC);
     DL_GPIO_enableOutput(GPIO_PWM_BIN_C1_PORT, GPIO_PWM_BIN_C1_PIN);
-
-    DL_GPIO_initPeripheralInputFunction(GPIO_ENCODER_A_PHA_IOMUX,GPIO_ENCODER_A_PHA_IOMUX_FUNC);
-    DL_GPIO_initPeripheralInputFunction(GPIO_ENCODER_A_PHB_IOMUX,GPIO_ENCODER_A_PHB_IOMUX_FUNC);
 
     
 	DL_GPIO_initPeripheralInputFunctionFeatures(
@@ -156,14 +146,6 @@ SYSCONFIG_WEAK void SYSCFG_DL_GPIO_init(void)
 
     DL_GPIO_initDigitalOutput(BUZZER_GPIO_PIN_3_IOMUX);
 
-    DL_GPIO_initDigitalInputFeatures(ENCODER_B_PHASE_A_IOMUX,
-		 DL_GPIO_INVERSION_DISABLE, DL_GPIO_RESISTOR_PULL_UP,
-		 DL_GPIO_HYSTERESIS_DISABLE, DL_GPIO_WAKEUP_DISABLE);
-
-    DL_GPIO_initDigitalInputFeatures(ENCODER_B_PHASE_B_IOMUX,
-		 DL_GPIO_INVERSION_DISABLE, DL_GPIO_RESISTOR_PULL_UP,
-		 DL_GPIO_HYSTERESIS_DISABLE, DL_GPIO_WAKEUP_DISABLE);
-
     DL_GPIO_initDigitalInputFeatures(GRAY_6CH_GRAY_L2_IOMUX,
 		 DL_GPIO_INVERSION_DISABLE, DL_GPIO_RESISTOR_PULL_UP,
 		 DL_GPIO_HYSTERESIS_DISABLE, DL_GPIO_WAKEUP_DISABLE);
@@ -190,17 +172,9 @@ SYSCONFIG_WEAK void SYSCFG_DL_GPIO_init(void)
 
     DL_GPIO_setPins(GPIOA, BUZZER_GPIO_PIN_3_PIN);
     DL_GPIO_enableOutput(GPIOA, BUZZER_GPIO_PIN_3_PIN);
-    DL_GPIO_setLowerPinsPolarity(GPIOA, DL_GPIO_PIN_8_EDGE_RISE_FALL |
-		DL_GPIO_PIN_9_EDGE_RISE_FALL);
     DL_GPIO_setUpperPinsPolarity(GPIOA, DL_GPIO_PIN_18_EDGE_FALL);
-    DL_GPIO_setLowerPinsInputFilter(GPIOA, DL_GPIO_PIN_8_INPUT_FILTER_3_CYCLES |
-		DL_GPIO_PIN_9_INPUT_FILTER_3_CYCLES);
-    DL_GPIO_clearInterruptStatus(GPIOA, MODE_GPIO_PIN_1_PIN |
-		ENCODER_B_PHASE_A_PIN |
-		ENCODER_B_PHASE_B_PIN);
-    DL_GPIO_enableInterrupt(GPIOA, MODE_GPIO_PIN_1_PIN |
-		ENCODER_B_PHASE_A_PIN |
-		ENCODER_B_PHASE_B_PIN);
+    DL_GPIO_clearInterruptStatus(GPIOA, MODE_GPIO_PIN_1_PIN);
+    DL_GPIO_enableInterrupt(GPIOA, MODE_GPIO_PIN_1_PIN);
     DL_GPIO_setPublisherChanID(GPIOA, DL_GPIO_PUBLISHER_INDEX_1, GPIOA_EVENT_PUBLISHER_1_CHANNEL);
     DL_GPIO_enableEvents(GPIOA, DL_GPIO_EVENT_ROUTE_2, MODE_GPIO_PIN_1_PIN);
     DL_GPIO_clearPins(GPIOB, RED_GPIO_PIN_0_PIN);
@@ -327,28 +301,6 @@ SYSCONFIG_WEAK void SYSCFG_DL_PWM_BIN_init(void) {
     DL_TimerG_setCCPDirection(PWM_BIN_INST , DL_TIMER_CC0_OUTPUT | DL_TIMER_CC1_OUTPUT );
 
 
-}
-
-
-static const DL_TimerG_ClockConfig gENCODER_AClockConfig = {
-    .clockSel = DL_TIMER_CLOCK_BUSCLK,
-    .divideRatio = DL_TIMER_CLOCK_DIVIDE_1,
-    .prescale = 0U
-};
-
-
-SYSCONFIG_WEAK void SYSCFG_DL_ENCODER_A_init(void) {
-
-    DL_TimerG_setClockConfig(
-        ENCODER_A_INST, (DL_TimerG_ClockConfig *) &gENCODER_AClockConfig);
-
-    DL_TimerG_configQEI(ENCODER_A_INST, DL_TIMER_QEI_MODE_2_INPUT,
-        DL_TIMER_CC_INPUT_INV_NOINVERT, DL_TIMER_CC_0_INDEX);
-    DL_TimerG_configQEI(ENCODER_A_INST, DL_TIMER_QEI_MODE_2_INPUT,
-        DL_TIMER_CC_INPUT_INV_NOINVERT, DL_TIMER_CC_1_INDEX);
-    DL_TimerG_setLoadValue(ENCODER_A_INST, 65535);
-    DL_TimerG_enableClock(ENCODER_A_INST);
-    DL_TimerG_startCounter(ENCODER_A_INST);
 }
 
 

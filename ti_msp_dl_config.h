@@ -116,23 +116,6 @@ extern "C" {
 
 
 
-/* Defines for ENCODER_A */
-#define ENCODER_A_INST                                                     TIMG8
-#define ENCODER_A_INST_IRQHandler                               TIMG8_IRQHandler
-#define ENCODER_A_INST_INT_IRQN                                 (TIMG8_INT_IRQn)
-/* Pin configuration defines for ENCODER_A PHA Pin */
-#define GPIO_ENCODER_A_PHA_PORT                                            GPIOA
-#define GPIO_ENCODER_A_PHA_PIN                                     DL_GPIO_PIN_1
-#define GPIO_ENCODER_A_PHA_IOMUX                                  (IOMUX_PINCM2)
-#define GPIO_ENCODER_A_PHA_IOMUX_FUNC                 IOMUX_PINCM2_PF_TIMG8_CCP0
-/* Pin configuration defines for ENCODER_A PHB Pin */
-#define GPIO_ENCODER_A_PHB_PORT                                            GPIOA
-#define GPIO_ENCODER_A_PHB_PIN                                     DL_GPIO_PIN_0
-#define GPIO_ENCODER_A_PHB_IOMUX                                  (IOMUX_PINCM1)
-#define GPIO_ENCODER_A_PHB_IOMUX_FUNC                 IOMUX_PINCM1_PF_TIMG8_CCP1
-
-
-
 /* Defines for I2C_0 */
 #define I2C_0_INST                                                          I2C1
 #define I2C_0_INST_IRQHandler                                    I2C1_IRQHandler
@@ -179,10 +162,9 @@ extern "C" {
 #define MODE_GPIO_PORT                                                   (GPIOA)
 
 /* Defines for PIN_1: GPIOA.18 with pinCMx 40 on package pin 11 */
-// groups represented: ["ENCODER_B","MODE_GPIO"]
-// pins affected: ["PHASE_A","PHASE_B","PIN_1"]
-#define GPIO_MULTIPLE_GPIOA_INT_IRQN                            (GPIOA_INT_IRQn)
-#define GPIO_MULTIPLE_GPIOA_INT_IIDX            (DL_INTERRUPT_GROUP1_IIDX_GPIOA)
+// pins affected by this interrupt request:["PIN_1"]
+#define MODE_GPIO_INT_IRQN                                      (GPIOA_INT_IRQn)
+#define MODE_GPIO_INT_IIDX                      (DL_INTERRUPT_GROUP1_IIDX_GPIOA)
 #define MODE_GPIO_PIN_1_IIDX                                (DL_GPIO_IIDX_DIO18)
 #define MODE_GPIO_PIN_1_PIN                                     (DL_GPIO_PIN_18)
 #define MODE_GPIO_PIN_1_IOMUX                                    (IOMUX_PINCM40)
@@ -202,17 +184,6 @@ extern "C" {
 /* Defines for PIN_3: GPIOA.2 with pinCMx 7 on package pin 42 */
 #define BUZZER_GPIO_PIN_3_PIN                                    (DL_GPIO_PIN_2)
 #define BUZZER_GPIO_PIN_3_IOMUX                                   (IOMUX_PINCM7)
-/* Port definition for Pin Group ENCODER_B */
-#define ENCODER_B_PORT                                                   (GPIOA)
-
-/* Defines for PHASE_A: GPIOA.8 with pinCMx 19 on package pin 54 */
-#define ENCODER_B_PHASE_A_IIDX                               (DL_GPIO_IIDX_DIO8)
-#define ENCODER_B_PHASE_A_PIN                                    (DL_GPIO_PIN_8)
-#define ENCODER_B_PHASE_A_IOMUX                                  (IOMUX_PINCM19)
-/* Defines for PHASE_B: GPIOA.9 with pinCMx 20 on package pin 55 */
-#define ENCODER_B_PHASE_B_IIDX                               (DL_GPIO_IIDX_DIO9)
-#define ENCODER_B_PHASE_B_PIN                                    (DL_GPIO_PIN_9)
-#define ENCODER_B_PHASE_B_IOMUX                                  (IOMUX_PINCM20)
 /* Port definition for Pin Group GRAY_6CH */
 #define GRAY_6CH_PORT                                                    (GPIOA)
 
@@ -247,7 +218,6 @@ void SYSCFG_DL_GPIO_init(void);
 void SYSCFG_DL_SYSCTL_init(void);
 void SYSCFG_DL_PWM_AIN_init(void);
 void SYSCFG_DL_PWM_BIN_init(void);
-void SYSCFG_DL_ENCODER_A_init(void);
 void SYSCFG_DL_I2C_0_init(void);
 void SYSCFG_DL_DEBUG_UART_init(void);
 

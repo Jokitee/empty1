@@ -11,7 +11,7 @@ uint8_t gray_value[GRAY_NUM];
 /* 循迹转向PID */
 PID_t pid_line = {100.0f, 0.0f, 50.0f, 0, 0, 0, 0};
 /* 陀螺仪 Yaw 偏航角控制 PID */
-PID_t pid_yaw = {100.0f, 0.0f, 50.0f, 0, 0, 0, 0};
+PID_t pid_yaw = {250.0f, 0.0f, 50.0f, 0, 0, 0, 0};
 
 /* 循迹/控制全局变量 */
 volatile int16_t  g_targetA = 0;
@@ -230,8 +230,8 @@ void SysTick_Handler(void)
 
             int16_t steer = YawControl(g_target_yaw, g_imu_attitude.yaw);
 
-            left_speed = g_line_base_speed + steer;
-            right_speed = g_line_base_speed - steer;
+            left_speed = g_line_base_speed - steer;
+            right_speed = g_line_base_speed + steer;
 
             pid_line.integral = 0;
             pid_line.last_err = 0;

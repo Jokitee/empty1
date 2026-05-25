@@ -63,10 +63,10 @@ void RED_LED_Flash(uint8_t count)
     for (uint8_t i = 0; i < count; i++) {
         // 点亮红灯
         DL_GPIO_setPins(RED_GPIO_PORT, RED_GPIO_PIN_0_PIN);
-        delay_ms(150);
+        delay_ms(200);
         // 熄灭红灯
         DL_GPIO_clearPins(RED_GPIO_PORT, RED_GPIO_PIN_0_PIN);
-        delay_ms(150);
+        delay_ms(200);
     }
 }
 
@@ -256,10 +256,6 @@ int main(void)
 {
     SYSCFG_DL_init();
     Motor_Init();
-    
-    // 彻底关闭并清除未使用的编码器 B (GPIOA.8 / GPIOA.9) 的 GPIO 中断，防止产生干扰和死锁
-    DL_GPIO_disableInterrupt(GPIOA, ENCODER_B_PHASE_A_PIN | ENCODER_B_PHASE_B_PIN);
-    DL_GPIO_clearInterruptStatus(GPIOA, ENCODER_B_PHASE_A_PIN | ENCODER_B_PHASE_B_PIN);
     
     // 开启中断控制
     NVIC_EnableIRQ(GPIOA_INT_IRQn);
