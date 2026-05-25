@@ -169,13 +169,43 @@ extern "C" {
 
 
 
+/* Port definition for Pin Group RED_GPIO */
+#define RED_GPIO_PORT                                                    (GPIOB)
+
+/* Defines for PIN_0: GPIOB.14 with pinCMx 31 on package pin 2 */
+#define RED_GPIO_PIN_0_PIN                                      (DL_GPIO_PIN_14)
+#define RED_GPIO_PIN_0_IOMUX                                     (IOMUX_PINCM31)
+/* Port definition for Pin Group MODE_GPIO */
+#define MODE_GPIO_PORT                                                   (GPIOA)
+
+/* Defines for PIN_1: GPIOA.18 with pinCMx 40 on package pin 11 */
+// groups represented: ["ENCODER_B","MODE_GPIO"]
+// pins affected: ["PHASE_A","PHASE_B","PIN_1"]
+#define GPIO_MULTIPLE_GPIOA_INT_IRQN                            (GPIOA_INT_IRQn)
+#define GPIO_MULTIPLE_GPIOA_INT_IIDX            (DL_INTERRUPT_GROUP1_IIDX_GPIOA)
+#define MODE_GPIO_PIN_1_IIDX                                (DL_GPIO_IIDX_DIO18)
+#define MODE_GPIO_PIN_1_PIN                                     (DL_GPIO_PIN_18)
+#define MODE_GPIO_PIN_1_IOMUX                                    (IOMUX_PINCM40)
+/* Port definition for Pin Group CONF_GPIO */
+#define CONF_GPIO_PORT                                                   (GPIOB)
+
+/* Defines for PIN_2: GPIOB.13 with pinCMx 30 on package pin 1 */
+// pins affected by this interrupt request:["PIN_2"]
+#define CONF_GPIO_INT_IRQN                                      (GPIOB_INT_IRQn)
+#define CONF_GPIO_INT_IIDX                      (DL_INTERRUPT_GROUP1_IIDX_GPIOB)
+#define CONF_GPIO_PIN_2_IIDX                                (DL_GPIO_IIDX_DIO13)
+#define CONF_GPIO_PIN_2_PIN                                     (DL_GPIO_PIN_13)
+#define CONF_GPIO_PIN_2_IOMUX                                    (IOMUX_PINCM30)
+/* Port definition for Pin Group BUZZER_GPIO */
+#define BUZZER_GPIO_PORT                                                 (GPIOA)
+
+/* Defines for PIN_3: GPIOA.2 with pinCMx 7 on package pin 42 */
+#define BUZZER_GPIO_PIN_3_PIN                                    (DL_GPIO_PIN_2)
+#define BUZZER_GPIO_PIN_3_IOMUX                                   (IOMUX_PINCM7)
 /* Port definition for Pin Group ENCODER_B */
 #define ENCODER_B_PORT                                                   (GPIOA)
 
 /* Defines for PHASE_A: GPIOA.8 with pinCMx 19 on package pin 54 */
-// pins affected by this interrupt request:["PHASE_A","PHASE_B"]
-#define ENCODER_B_INT_IRQN                                      (GPIOA_INT_IRQn)
-#define ENCODER_B_INT_IIDX                      (DL_INTERRUPT_GROUP1_IIDX_GPIOA)
 #define ENCODER_B_PHASE_A_IIDX                               (DL_GPIO_IIDX_DIO8)
 #define ENCODER_B_PHASE_A_PIN                                    (DL_GPIO_PIN_8)
 #define ENCODER_B_PHASE_A_IOMUX                                  (IOMUX_PINCM19)
@@ -204,6 +234,8 @@ extern "C" {
 /* Defines for GRAY_R2: GPIOA.29 with pinCMx 4 on package pin 36 */
 #define GRAY_6CH_GRAY_R2_PIN                                    (DL_GPIO_PIN_29)
 #define GRAY_6CH_GRAY_R2_IOMUX                                    (IOMUX_PINCM4)
+#define GPIOA_EVENT_PUBLISHER_1_CHANNEL                                      (1)
+#define GPIOB_EVENT_PUBLISHER_0_CHANNEL                                      (2)
 
 
 

@@ -367,14 +367,24 @@ bool LSM6DSV_ReadAll(LSM6DSV_Handle_t *handle,
 
 bool LSM6DSV_BootCalibrate(LSM6DSV_Handle_t *handle, LSM6DSV_Attitude_t *attitude)
 {
+    // 1. 等待 300ms 确保传感器上电和内部滤波器完全稳定
+    delay_cycles(32000 * 300);
+
+    LSM6DSV_Axes_t accel;
+    LSM6DSV_Axes_t gyro;
+    float temp;
+
+    // 2. 连续读取并丢弃前 50 帧数据，清除滤波器建立期的暂态大误差
+    for (uint8_t i = 0; i < 50; i++) {
+        LSM6DSV_ReadAll(handle, &accel, &gyro, &temp);
+        delay_cycles(32000 * 5); // 5ms delay
+    }
+
     double sum_gx = 0.0, sum_gy = 0.0, sum_gz = 0.0;
     
     // 采样 200 次，每次延时 5ms，总共耗时约 1000ms = 1 秒
     uint16_t samples = 200;
     uint16_t valid_count = 0;  // 记录有效采样帧数
-    LSM6DSV_Axes_t accel;
-    LSM6DSV_Axes_t gyro;
-    float temp;
     
     // 用于检测静态稳定度：记录陀螺仪的最大、最小值
     float gyro_max_x = -9999.0f, gyro_min_x = 9999.0f;
@@ -382,18 +392,19 @@ bool LSM6DSV_BootCalibrate(LSM6DSV_Handle_t *handle, LSM6DSV_Attitude_t *attitud
     float gyro_max_z = -9999.0f, gyro_min_z = 9999.0f;
 
     for (uint16_t i = 0; i < samples; i++) {
-        valid_count++;
-        sum_gx += gyro.x;
-        sum_gy += gyro.y;
-        sum_gz += gyro.z;
-        
-        if (gyro.x > gyro_max_x) gyro_max_x = gyro.x;
-        if (gyro.x < gyro_min_x) gyro_min_x = gyro.x;
-        if (gyro.y > gyro_max_y) gyro_max_y = gyro.y;
-        if (gyro.y < gyro_min_y) gyro_min_y = gyro.y;
-        if (gyro.z > gyro_max_z) gyro_max_z = gyro.z;
-        if (gyro.z < gyro_min_z) gyro_min_z = gyro.z;
-
+        if (LSM6DSV_ReadAll(handle, &accel, &gyro, &temp)) {
+            valid_count++;
+            sum_gx += gyro.x;
+            sum_gy += gyro.y;
+            sum_gz += gyro.z;
+            
+            if (gyro.x > gyro_max_x) gyro_max_x = gyro.x;
+            if (gyro.x < gyro_min_x) gyro_min_x = gyro.x;
+            if (gyro.y > gyro_max_y) gyro_max_y = gyro.y;
+            if (gyro.y < gyro_min_y) gyro_min_y = gyro.y;
+            if (gyro.z > gyro_max_z) gyro_max_z = gyro.z;
+            if (gyro.z < gyro_min_z) gyro_min_z = gyro.z;
+        }
         delay_cycles(32000 * 5); // 5ms delay
     }
 
@@ -406,14 +417,14 @@ bool LSM6DSV_BootCalibrate(LSM6DSV_Handle_t *handle, LSM6DSV_Attitude_t *attitud
     float mean_gy = (float)(sum_gy / valid_count);
     float mean_gz = (float)(sum_gz / valid_count);
 
-    // 1. 车辆抖动校验 (Vibration Check): 采样期间陀螺仪波动最大差值不能超过 6.0 dps
+    // 3. 车辆抖动校验 (Vibration Check): 采样期间陀螺仪波动最大差值不能超过 6.0 dps
     if ((gyro_max_x - gyro_min_x) > 6.0f || 
         (gyro_max_y - gyro_min_y) > 6.0f || 
         (gyro_max_z - gyro_min_z) > 6.0f) {
         return false;
     }
 
-    // 2. 校验通过，存储零偏参数并初始化姿态角
+    // 4. 校验通过，存储零偏参数并初始化姿态角
     handle->gyro_bias_x = mean_gx;
     handle->gyro_bias_y = mean_gy;
     handle->gyro_bias_z = mean_gz;
@@ -423,6 +434,15 @@ bool LSM6DSV_BootCalibrate(LSM6DSV_Handle_t *handle, LSM6DSV_Attitude_t *attitud
     attitude->roll = 0.0f;
     attitude->pitch = 0.0f;
     attitude->yaw = 0.0f; // Yaw 轴初始清零
+
+    // 5. 串口打印校准结果以供调试
+    UART_SendString("IMU Bias Calibrated: X=");
+    UART_SendInt((int32_t)(mean_gx * 1000.0f));
+    UART_SendString(" Y=");
+    UART_SendInt((int32_t)(mean_gy * 1000.0f));
+    UART_SendString(" Z=");
+    UART_SendInt((int32_t)(mean_gz * 1000.0f));
+    UART_SendString(" (mdps)\r\n");
 
     return true;
 }
@@ -478,7 +498,7 @@ void LSM6DSV_UpdateAttitude(LSM6DSV_Handle_t *handle, LSM6DSV_Attitude_t *attitu
 
     // Yaw 死区略大于 Roll/Pitch（吸收残余偏置，防止零飘）
     float gz_yaw = gz;
-    const float yaw_deadband = 0.05f;  /* 可根据实测漂移速率微调 */
+    const float yaw_deadband = 0.15f;  /* 增加死区以吸收残余偏置并彻底消除静态零漂 */
     if (fabsf(gz_yaw) < yaw_deadband) gz_yaw = 0.0f;
 
     // 5. 陀螺仪积分 Roll / Pitch

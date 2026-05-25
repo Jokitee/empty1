@@ -19,7 +19,7 @@ void UART_SendHex(uint8_t num);
 // Print IMU data via UART
 void Debug_UART_PrintIMU(LSM6DSV_Handle_t *handle, bool imu_status);
 
-// Print calculated attitude angles + diagnostics (raw gz, read fail count) via UART
-void Debug_UART_PrintAttitude(LSM6DSV_Handle_t *handle, LSM6DSV_Attitude_t *attitude);
+// Print only yaw value via UART
+void Debug_UART_PrintYaw(float yaw);
 
 #endif /* UART_DEBUG_H */

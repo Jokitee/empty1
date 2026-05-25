@@ -122,41 +122,12 @@ void Debug_UART_PrintIMU(LSM6DSV_Handle_t *handle, bool imu_status)
     UART_SendString(" C\r\n");
 }
 
-void Debug_UART_PrintAttitude(LSM6DSV_Handle_t *handle, LSM6DSV_Attitude_t *attitude)
+void Debug_UART_PrintYaw(float yaw)
 {
-    /* Roll */
-    int32_t roll_i = (int32_t)(attitude->roll * 10.0f);
-    UART_SendString("R:");
-    UART_SendInt(roll_i / 10);
-    UART_SendChar('.');
-    UART_SendInt((roll_i < 0 ? -roll_i : roll_i) % 10);
-
-    /* Pitch */
-    int32_t pitch_i = (int32_t)(attitude->pitch * 10.0f);
-    UART_SendString(" P:");
-    UART_SendInt(pitch_i / 10);
-    UART_SendChar('.');
-    UART_SendInt((pitch_i < 0 ? -pitch_i : pitch_i) % 10);
-
-    /* Yaw */
-    int32_t yaw_i = (int32_t)(attitude->yaw * 10.0f);
-    UART_SendString(" Y:");
+    int32_t yaw_i = (int32_t)(yaw * 10.0f);
+    UART_SendString("Yaw:");
     UART_SendInt(yaw_i / 10);
     UART_SendChar('.');
     UART_SendInt((yaw_i < 0 ? -yaw_i : yaw_i) % 10);
-
-    /* 诊断：原始 gz（减偏置前） */
-    int32_t gz_i = (int32_t)(handle->diag_raw_gz * 10.0f);
-    UART_SendString(" gz:");
-    UART_SendInt(gz_i / 10);
-    UART_SendChar('.');
-    UART_SendInt((gz_i < 0 ? -gz_i : gz_i) % 10);
-
-    /* 诊断：ReadAll 失败率 */
-    UART_SendString(" F:");
-    UART_SendInt((int32_t)handle->diag_read_fail);
-    UART_SendChar('/');
-    UART_SendInt((int32_t)handle->diag_read_total);
-
     UART_SendString("\r\n");
 }

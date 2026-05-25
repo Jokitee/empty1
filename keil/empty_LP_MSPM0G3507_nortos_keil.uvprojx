@@ -429,6 +429,16 @@
               <FileType>5</FileType>
               <FilePath>..\uart_debug.h</FilePath>
             </File>
+            <File>
+              <FileName>car_control.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\car_control.c</FilePath>
+            </File>
+            <File>
+              <FileName>car_control.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\car_control.h</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
