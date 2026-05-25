@@ -1,0 +1,61 @@
+# ==================== IDE / Editor ====================
+
+# Keil uVision
+keil/Objects/
+keil/Debug/
+keil/Release/
+keil/*.uvguix.*
+keil/build_log.txt
+keil/JLinkLog.txt
+keil/JLinkSettings.ini
+
+# IAR Embedded Workbench
+iar/Debug/
+iar/Release/
+iar/settings/
+*.dep
+*.ewt
+
+# TI Code Composer Studio
+.targetconfig/
+.ccxml
+.launches/
+
+# VS Code
+.vscode/
+
+# ==================== Build Output ====================
+*.o
+*.d
+*.elf
+*.hex
+*.bin
+*.axf
+*.map
+*.lst
+*.htm
+*.lnp
+*.sct
+*.crf
+*.tra
+*.fed
+*.iex
+*.pdb
+*.log
+
+# ==================== OS Generated ====================
+.DS_Store
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+
+# ==================== Backup & Temp ====================
+*~
+*.bak
+*.swp
+*.tmp
+*.orig
+
+# ==================== Misc ====================
+*.scvd
+EventRecorderStub.scvd
