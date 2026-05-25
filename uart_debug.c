@@ -131,3 +131,14 @@ void Debug_UART_PrintYaw(float yaw)
     UART_SendInt((yaw_i < 0 ? -yaw_i : yaw_i) % 10);
     UART_SendString("\r\n");
 }
+
+/* 范定义输出函数 */
+void Debug_UART(float number)
+{
+    int32_t yaw_i = (int32_t)(number * 10.0f);
+    UART_SendString("Sta:");
+    UART_SendInt(yaw_i / 10);
+    UART_SendChar('.');
+    UART_SendInt((yaw_i < 0 ? -yaw_i : yaw_i) % 10);
+    UART_SendString("\r\n");
+}

@@ -1,42 +1,10 @@
-/*
- * Copyright (c) 2021, Texas Instruments Incorporated
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * *  Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- *
- * *  Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- *
- * *  Neither the name of Texas Instruments Incorporated nor the names of
- *    its contributors may be used to endorse or promote products derived
- *    from this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
- * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
- * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
- * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
- * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
- * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
- * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
- * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
-
 #include "ti_msp_dl_config.h"
 #include "lsm6dsv.h"
 #include "uart_debug.h"
 #include "car_control.h"
 
 /* ========== 姿态角度全局变量 ========== */
-LSM6DSV_Attitude_t g_imu_attitude = {0.0f, 0.0f, 0.0f};
+volatile LSM6DSV_Attitude_t g_imu_attitude = {0.0f, 0.0f, 0.0f};
 LSM6DSV_Handle_t lsm6dsv_dev;
 
 /* ========== 工作模式与状态变量 ========== */
@@ -55,6 +23,9 @@ volatile uint8_t    g_task_confirmed = 0;       /* 工作使能标志: 1=工作,
 static uint8_t      g_yaw_init = 0;             /* 陀螺仪目标角度锁定状态 */
 static volatile uint8_t g_task_success = 0;     /* 任务运行成功完成标志 */
 static volatile uint16_t g_idle_led_counter = 0; /* 待机状态下红灯每秒闪烁计数 */
+static volatile uint8_t g_yaw_reset_req = 0;    /* 主循环执行 yaw 清零的请求标志（避免ISR直接写float） */
+static volatile uint8_t g_mode_switch_req = 0;  /* MODE键按下请求标志 */
+static volatile uint8_t g_confirm_req = 0;      /* CONF键按下请求标志 */
 extern volatile int16_t  g_line_base_speed;
 
 /* ========== 红灯闪烁控制 ========== */
@@ -81,20 +52,7 @@ void GROUP1_IRQHandler(void)
         {
             uint32_t pins = DL_GPIO_getEnabledInterruptStatus(GPIOA, MODE_GPIO_PIN_1_PIN);
             if (pins & MODE_GPIO_PIN_1_PIN) {
-                delay_ms(20); // 软件去抖
-                if (DL_GPIO_readPins(GPIOA, MODE_GPIO_PIN_1_PIN) == 0) {
-                    // 仅在小车静止未开始工作时允许切换模式
-                    if (!g_task_confirmed) {
-                        if (g_selected_mode >= Task_4) {
-                            g_selected_mode = Task_1;
-                        } else {
-                            g_selected_mode = (TaskMode_t)((int)g_selected_mode + 1);
-                        }
-                        // 闪烁红灯次数对应模式 (Task_1 闪1次，Task_2 闪2次，以此类推)
-                        RED_LED_Flash((uint8_t)g_selected_mode);
-                        g_idle_led_counter = 0; // 重置待机计时器，防止立即再次闪烁
-                    }
-                }
+                g_mode_switch_req = 1;
                 DL_GPIO_clearInterruptStatus(GPIOA, MODE_GPIO_PIN_1_PIN);
             }
             break;
@@ -105,32 +63,7 @@ void GROUP1_IRQHandler(void)
         {
             uint32_t pins = DL_GPIO_getEnabledInterruptStatus(GPIOB, CONF_GPIO_PIN_2_PIN);
             if (pins & CONF_GPIO_PIN_2_PIN) {
-                delay_ms(20); // 软件去抖
-                if (DL_GPIO_readPins(GPIOB, CONF_GPIO_PIN_2_PIN) == 0) {
-                    if (!g_task_confirmed && g_selected_mode != Task_0) {
-                        g_running_mode = g_selected_mode;
-                        g_task_confirmed = 1;
-                        
-                        // 确定启动瞬间，将当前偏航角（Yaw）重置为 0，作为后续控制的起始基准
-                        g_imu_attitude.yaw = 0.0f;
-                        
-                        // 确认工作提示：常亮红灯与蜂鸣器并发车延迟 0.5 秒
-                        DL_GPIO_setPins(RED_GPIO_PORT, RED_GPIO_PIN_0_PIN);
-                        Buzzer_On();
-                        delay_ms(500);
-                        DL_GPIO_clearPins(RED_GPIO_PORT, RED_GPIO_PIN_0_PIN);
-                        Buzzer_Off();
-                    } else {
-                        // 如果已经在运行中，再次按下CONF键则作为“急停”信号
-                        g_task_confirmed = 0;
-                        g_running = 0;
-                        g_targetA = 0;
-                        g_targetB = 0;
-                        Motor_Brake(&MotorA);
-                        Motor_Brake(&MotorB);
-                        RED_LED_Flash(5); // 快速闪烁5次提示已停机
-                    }
-                }
+                g_confirm_req = 1;
                 DL_GPIO_clearInterruptStatus(GPIOB, CONF_GPIO_PIN_2_PIN);
             }
             break;
@@ -145,25 +78,26 @@ void Task1_Process(void)
 {
     /* 模式一：从 A 点出发直行到 B 点停车 */
     static uint8_t step = 0;
-    Car_TrackLine(g_line_base_speed); // 启动闭环运行 (白区自动使用 Yaw 闭环直跑)
-    
+
     if (!g_yaw_init) {
         step = 0;
         g_yaw_init = 1;
     }
-    
-    // 步骤 0：如果是从黑线起点出发，先等待小车驶离黑线（进入白区）
+
+    Car_TrackLine(g_line_base_speed); // 启动（白区 Yaw 闭环直跑）
+
+    // 步骤 0：等待小车进入白区（适配起点在黑线或白区两种情况）
     if (step == 0) {
         if (g_line_state == LINE_NONE) {
             step = 1;
         }
     }
-    // 步骤 1：在白区直行，直到再次触碰到黑线（终点 B），执行刹车
+    // 步骤 1：白区直行，LINE_TRACK 可靠判定路标 B，执行停车
     else if (step == 1) {
         if (g_line_state == LINE_TRACK) {
             Car_Stop();
             g_task_success = 1;
-            g_task_confirmed = 0; // 任务正常结束
+            g_task_confirmed = 0;
             step = 0;
         }
     }
@@ -189,7 +123,7 @@ void Task2_Process(void)
         step++;
     }
     
-    // 经历4次状态转换（走完一周）回到 A 点白区后刹车停止
+    // 经历8次状态转换（4个黑线标记点各进出一次：B,C,D,A）
     if (step >= 4) {
         Car_Stop();
         g_task_success = 1;
@@ -216,7 +150,7 @@ void Task3_Process(void)
         step++;
     }
     
-    // "8" 字形路径同样包含 4 段切换（两段直行、两段圆弧）
+    // "8" 字形路径：C,B,D,A
     if (step >= 4) {
         Car_Stop();
         g_task_success = 1;
@@ -243,7 +177,7 @@ void Task4_Process(void)
         step++;
     }
     
-    // 4 圈 * 4 段切换 = 16 次状态改变后完成回 A 停车
+    // 4 圈 * 4 次切换 = 16 次状态改变后完成回 A 停车
     if (step >= 16) {
         Car_Stop();
         g_task_success = 1;
@@ -277,13 +211,65 @@ int main(void)
     {
         delay_ms(10);
         
-        /* 传感器数据更新 */
-        Grayscale_ReadAll();
-        g_line_pos   = Grayscale_GetLinePosition();
-        g_line_state = Grayscale_GetState();
+        /* 处理来自 MODE 按键 ISR 的请求 */
+        if (g_mode_switch_req) {
+            g_mode_switch_req = 0;
+            delay_ms(20); // 软件去抖
+            if (DL_GPIO_readPins(GPIOA, MODE_GPIO_PIN_1_PIN) == 0) {
+                // 仅在小车静止未开始工作时允许切换模式
+                if (!g_task_confirmed) {
+                    if (g_selected_mode >= Task_4) {
+                        g_selected_mode = Task_1;
+                    } else {
+                        g_selected_mode = (TaskMode_t)((int)g_selected_mode + 1);
+                    }
+                    // 闪烁红灯次数对应模式 (Task_1 闪1次，Task_2 闪2次，以此类推)
+                    RED_LED_Flash((uint8_t)g_selected_mode);
+                    g_idle_led_counter = 0; // 重置待机计时器，防止立即再次闪烁
+                }
+            }
+        }
+
+        /* 处理来自 CONF 按键 ISR 的请求 */
+        if (g_confirm_req) {
+            g_confirm_req = 0;
+            delay_ms(20); // 软件去抖
+            if (DL_GPIO_readPins(GPIOB, CONF_GPIO_PIN_2_PIN) == 0) {
+                if (!g_task_confirmed && g_selected_mode != Task_0) {
+                    g_running_mode = g_selected_mode;
+                    g_task_confirmed = 1;
+                    
+                    // 请求主循环清零Yaw（避免ISR直接写float导致数据竞争）
+                    g_yaw_reset_req = 1;
+                    g_yaw_locked = 0; // 重置偏航角锁定标志，允许重新锁定航向
+
+                    // 启动蜂鸣+红灯：交由 SysTick 非阻塞驱动（g_running=0 分支）
+                    g_beep_ticks = 50;
+                    // 阻塞等待 500ms：主循环暂停，SysTick 继续倒计时蜂鸣，
+                    // 500ms 后小车才开始运动，避免手还在按键时车已出发
+                    delay_ms(500);
+                } else {
+                    // 如果已经在运行中，再次按下CONF键则作为“急停”信号
+                    g_task_confirmed = 0;
+                    g_running = 0;
+                    g_targetA = 0;
+                    g_targetB = 0;
+                    Motor_Brake(&MotorA);
+                    Motor_Brake(&MotorB);
+                    RED_LED_Flash(5); // 快速闪烁5次提示已停机
+                }
+            }
+        }
         
+        /* 先执行 IMU 姿态积分更新 */
         if (imu_status) {
             LSM6DSV_UpdateAttitude(&lsm6dsv_dev, &g_imu_attitude, 0.01f);
+        }
+
+        /* 再处理 Yaw 清零请求（必须在 IMU 更新之后，防止被立即覆盖） */
+        if (g_yaw_reset_req) {
+            g_yaw_reset_req = 0;
+            g_imu_attitude.yaw = 0.0f;
         }
         
 //        // 每 200ms 通过串口只输出一次 Yaw 的值
@@ -292,7 +278,7 @@ int main(void)
 //        if (print_counter >= 20) {
 //            print_counter = 0;
 //            if (imu_status) {
-//                Debug_UART_PrintYaw(g_imu_attitude.yaw);
+//                Debug_UART((float)g_line_state);
 //            }
 //        }
         
@@ -310,6 +296,7 @@ int main(void)
         /* 任务运行与分配器 */
         if (g_task_confirmed) 
         {
+            
             switch (g_running_mode) 
             {
                 case Task_1:
@@ -337,6 +324,9 @@ int main(void)
             Motor_Set(&MotorA, 0);
             Motor_Set(&MotorB, 0);
             g_yaw_init = 0; // 重置陀螺仪航向锁定标志
+            g_yaw_locked = 0; // 重置航向锁定状态，允许下一次运行时重新锁定
+            g_line_state = LINE_NONE; // 重置为初始状态
+            g_line_pos = 0.0f;
             
             // 如果刚刚是任务正常且成功走完自动停机，发出三短鸣声光提示
             if (g_task_success) {

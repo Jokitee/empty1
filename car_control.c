@@ -11,7 +11,9 @@ uint8_t gray_value[GRAY_NUM];
 /* 循迹转向PID */
 PID_t pid_line = {100.0f, 0.0f, 50.0f, 0, 0, 0, 0};
 /* 陀螺仪 Yaw 偏航角控制 PID */
-PID_t pid_yaw = {250.0f, 0.0f, 50.0f, 0, 0, 0, 0};
+/* Kp=10.0: 1°误差→1000 PWM差速，提供强劲纠偏，克服电机机械偏差，防止走偏 */
+/* Kd=1.5: 增加微分阻尼，避免强Kp带来的振荡，抑制高频噪声                          */
+PID_t pid_yaw = {10.0f, 0.0f, 1.5f, 0, 0, 0, 0};
 
 /* 循迹/控制全局变量 */
 volatile int16_t  g_targetA = 0;
@@ -21,7 +23,7 @@ volatile uint8_t  g_line_state = LINE_NONE;
 volatile uint8_t  g_running = 0;
 volatile int16_t  g_line_base_speed = 1500;
 
-extern LSM6DSV_Attitude_t g_imu_attitude;
+extern volatile LSM6DSV_Attitude_t g_imu_attitude;
 volatile float    g_target_yaw = 0.0f;
 volatile uint8_t  g_yaw_locked = 0;
 volatile uint16_t g_beep_ticks = 0;
@@ -107,11 +109,9 @@ LineState_t Grayscale_GetState(void)
     uint8_t r1 = gray_value[3];
     
     uint8_t total = l1 + m1 + m2 + r1;
-    
-    if (total == 0) return LINE_NONE;
-    if (m1 == 1 || m2 == 1 ||l1 == 1 || r1 ==1) return LINE_TRACK;
-    
-    return LINE_NONE;
+
+    if (total == 0) return LINE_NONE;   /* 四路全白：白区 */
+    return LINE_TRACK;                  /* 任意一路非白：检测到路标横线 */
 }
 
 /**
@@ -162,6 +162,11 @@ void PID_Update(PID_t *pid, int32_t target, int32_t actual)
  */
 void SysTick_Handler(void)
 {
+    // 在定时器中断最前端采集传感器数据，确保控制闭环时间同步并防止数据竞争
+    Grayscale_ReadAll();
+    g_line_pos   = Grayscale_GetLinePosition();
+    g_line_state = Grayscale_GetState();
+
     // 非运行状态下仅进行蜂鸣器/LED倒计时清除，不执行小车运动控制
     if (!g_running) {
         Motor_Set(&MotorA, g_targetA);
@@ -196,11 +201,16 @@ void SysTick_Handler(void)
 
     int16_t left_speed, right_speed;
 
-    switch (g_line_state) {
-        case LINE_TRACK:
-        {
+    switch (g_line_state){
+			case LINE_TRACK:
+				{
             // 在黑线循迹期间，释放 Yaw 锁定，为下一次出黑线锁死偏航角做准备
             g_yaw_locked = 0;
+            
+            // 重置 Yaw PID 状态，防止上一次白区控制的残留积分/微分项干扰下一次进入
+            pid_yaw.integral = 0.0f;
+            pid_yaw.last_err = 0.0f;
+            pid_yaw.err = 0.0f;
 
             PID_Update(&pid_line, 0, (int32_t)(g_line_pos * 100));
             int16_t steer_pwm = pid_line.output;
@@ -216,28 +226,35 @@ void SysTick_Handler(void)
                 left_speed = g_line_base_speed;
                 right_speed = g_line_base_speed + steer_pwm;
             }
-            break;
+						
+						break;
         }
-
-        case LINE_NONE:
-        default:
+		  case LINE_NONE:
+			default:
         {
             // 进入白色无轨区，以进入瞬间的 Yaw 角为目标，使用 Yaw PID 闭环控直行
             if (!g_yaw_locked) {
-                g_target_yaw = g_imu_attitude.yaw;
+                g_target_yaw = 0.0f;  // 记录进入瞬间的 Yaw 角作为直行目标
                 g_yaw_locked = 1;
+                // 锁定时也清零 PID 状态，确保平滑过渡
+                pid_yaw.integral = 0.0f;
+                pid_yaw.last_err = 0.0f;
+                pid_yaw.err = 0.0f;
             }
 
             int16_t steer = YawControl(g_target_yaw, g_imu_attitude.yaw);
 
-            left_speed = g_line_base_speed - steer;
-            right_speed = g_line_base_speed + steer;
-
-            pid_line.integral = 0;
-            pid_line.last_err = 0;
-            break;
+						int16_t max_steer = g_line_base_speed / 2;
+						if (steer > max_steer) steer = max_steer;
+            if (steer < -max_steer) steer = -max_steer;
+						
+            /* 对称差速：两轮各承担一半差值，平均速度始终保持 base_speed */
+            left_speed  = g_line_base_speed - steer / 2;
+            right_speed = g_line_base_speed + steer / 2;
+						
+						break;
         }
-    }
+			}
 
     Motor_Set(&MotorA, left_speed);
     Motor_Set(&MotorB, right_speed);
@@ -294,11 +311,13 @@ void Car_Stop(void)
  */
 int16_t YawControl(float target_yaw, float current_yaw)
 {
-    float error = target_yaw - current_yaw;
-    
-    /* 将浮点角度偏差乘以 100 转换为整型误差供 PID 运算，以防浮点数溢出或抖动 */
-    PID_Update(&pid_yaw, 0, (int32_t)(-error * 100));
-    
+    /* 计算角度差并归一化到 [-180, +180]，防止跨越 ±180° 时误差突变 */
+    float angle_diff = target_yaw - current_yaw;
+    while (angle_diff >  180.0f) angle_diff -= 360.0f;
+    while (angle_diff < -180.0f) angle_diff += 360.0f;
+
+    /* 以归一化角度差为误差送入 PID，target=err*100，actual=0 */
+    PID_Update(&pid_yaw, (int32_t)(angle_diff * 100.0f), 0);
     return pid_yaw.output;
 }
 

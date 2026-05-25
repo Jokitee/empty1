@@ -32,8 +32,8 @@ extern Motor_t MotorB;
 extern uint8_t gray_value[GRAY_NUM];
 
 typedef enum {
-    LINE_TRACK = 0,   /* 中间有黑线，循迹中 */
-    LINE_NONE         /* 全白，丢线 */
+		LINE_NONE	 = 0,		/* 全白，丢线 */
+    LINE_TRACK   /* 中间有黑线，循迹中 */
 } LineState_t;
 
 /* ========== PID 控制结构体 ========== */

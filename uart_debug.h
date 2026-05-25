@@ -22,4 +22,6 @@ void Debug_UART_PrintIMU(LSM6DSV_Handle_t *handle, bool imu_status);
 // Print only yaw value via UART
 void Debug_UART_PrintYaw(float yaw);
 
+void Debug_UART(float number);
+
 #endif /* UART_DEBUG_H */

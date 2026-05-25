@@ -365,7 +365,7 @@ bool LSM6DSV_ReadAll(LSM6DSV_Handle_t *handle,
 /* ========== 滤波算法与姿态解算实现 ========== */
 
 
-bool LSM6DSV_BootCalibrate(LSM6DSV_Handle_t *handle, LSM6DSV_Attitude_t *attitude)
+bool LSM6DSV_BootCalibrate(LSM6DSV_Handle_t *handle, volatile LSM6DSV_Attitude_t *attitude)
 {
     // 1. 等待 300ms 确保传感器上电和内部滤波器完全稳定
     delay_cycles(32000 * 300);
@@ -447,7 +447,7 @@ bool LSM6DSV_BootCalibrate(LSM6DSV_Handle_t *handle, LSM6DSV_Attitude_t *attitud
     return true;
 }
 
-void LSM6DSV_LoadPresetCalibrate(LSM6DSV_Handle_t *handle, LSM6DSV_Attitude_t *attitude)
+void LSM6DSV_LoadPresetCalibrate(LSM6DSV_Handle_t *handle, volatile LSM6DSV_Attitude_t *attitude)
 {
     handle->gyro_bias_x = IMU_PRESET_BIAS_X;
     handle->gyro_bias_y = IMU_PRESET_BIAS_Y;
@@ -460,7 +460,7 @@ void LSM6DSV_LoadPresetCalibrate(LSM6DSV_Handle_t *handle, LSM6DSV_Attitude_t *a
     attitude->yaw = 0.0f;
 }
 
-void LSM6DSV_UpdateAttitude(LSM6DSV_Handle_t *handle, LSM6DSV_Attitude_t *attitude, float dt)
+void LSM6DSV_UpdateAttitude(LSM6DSV_Handle_t *handle, volatile LSM6DSV_Attitude_t *attitude, float dt)
 {
     LSM6DSV_Axes_t accel;
     LSM6DSV_Axes_t gyro;

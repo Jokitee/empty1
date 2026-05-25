@@ -192,12 +192,12 @@ bool LSM6DSV_ReadAll(LSM6DSV_Handle_t *handle,
  * @param  attitude 姿态结构体（初始化为校准后的静态 Roll/Pitch，Yaw归零）
  * @return bool 是否通过校验（true = 通过，false = 倾斜过大或在振动/运动中）
  */
-bool LSM6DSV_BootCalibrate(LSM6DSV_Handle_t *handle, LSM6DSV_Attitude_t *attitude);
+bool LSM6DSV_BootCalibrate(LSM6DSV_Handle_t *handle, volatile LSM6DSV_Attitude_t *attitude);
 
 /**
  * @brief  直接载入预设的零偏校准数据
  */
-void LSM6DSV_LoadPresetCalibrate(LSM6DSV_Handle_t *handle, LSM6DSV_Attitude_t *attitude);
+void LSM6DSV_LoadPresetCalibrate(LSM6DSV_Handle_t *handle, volatile LSM6DSV_Attitude_t *attitude);
 
 /**
  * @brief  姿态解算互补滤波更新
@@ -205,7 +205,7 @@ void LSM6DSV_LoadPresetCalibrate(LSM6DSV_Handle_t *handle, LSM6DSV_Attitude_t *a
  * @param  attitude 姿态输出结构体
  * @param  dt 两次调用之间的时间间隔（秒）
  */
-void LSM6DSV_UpdateAttitude(LSM6DSV_Handle_t *handle, LSM6DSV_Attitude_t *attitude, float dt);
+void LSM6DSV_UpdateAttitude(LSM6DSV_Handle_t *handle, volatile LSM6DSV_Attitude_t *attitude, float dt);
 
 /* ========== 底层 I2C 读写（供内部使用，也可外部调用） ========== */
 bool LSM6DSV_ReadReg(LSM6DSV_Handle_t *handle, uint8_t reg, uint8_t *buf, uint8_t len);
