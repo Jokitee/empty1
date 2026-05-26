@@ -1,5 +1,6 @@
 #include "car_control.h"
 #include "lsm6dsv.h"
+#include "uart_debug.h"
 #include <stdlib.h>
 
 /* TIMG0 and TIMG6 are TimerG which only have 2 channels (CC_0 and CC_1) */
@@ -10,10 +11,10 @@ Motor_t MotorB = {TIMG6, DL_TIMER_CC_0_INDEX, DL_TIMER_CC_1_INDEX};
 uint8_t gray_value[GRAY_NUM];
 
 /* 循迹转向PID */
-PID_t pid_line = {10.0f, 0.0f, 5.0f, 0, 0, 0, 0};
+PID_t pid_line = {2.2f, 0.0f, 1.5f, 0, 0, 0, 0};
 /* 陀螺仪 Yaw 偏航角控制 PID 及状态 */
 YawController_t g_yaw_ctrl = {
-    .pid = {1.5f, 0.0f, 0.5f, 0, 0, 0, 0},
+    .pid = {1.4f, 0.0f, 1.8f, 0, 0, 0, 0},
     .target_yaw = 0.0f,
     .locked = 0
 };
@@ -24,12 +25,16 @@ volatile int16_t  g_targetB = 0;
 volatile float    g_line_pos = 0.0f;
 volatile uint8_t  g_line_state = LINE_NONE;
 volatile uint8_t  g_running = 0;
-volatile int16_t  g_line_base_speed = 900;
-volatile int16_t  g_line_start_speed = 950;
-volatile int16_t  g_max_steer = 100;           /* 最大转向限制 (Steer PWM 限制) */
-volatile float    g_speed_drop_factor = 0.5f;  /* 转向大时速度降低系数 */
+volatile int16_t  g_line_base_speed = 1000;
+volatile int16_t  g_line_start_speed = 1020;
+volatile int16_t  g_max_steer = 400;           /* 最大转向限制 (Steer PWM 限制) */
+volatile float    g_speed_drop_factor = 1.2f;  /* 转向大时速度降低系数 */
 /* 四路循迹传感器权重（偏移量量化值，正值表示偏左，负值表示偏右） */
-volatile float    g_gray_weights[GRAY_NUM] = {1.5f, 0.5f, -0.5f, -1.5f};
+volatile float    g_gray_weights[GRAY_NUM] = {1.7f, 0.4f, -0.4f, -1.7f};
+
+volatile uint16_t g_entry_slow_ticks = 0;      /* 从白区切入黑线时的强制减速计数器 */
+volatile int16_t  g_entry_slow_speed = 550;     /* 切入黑线瞬间的基准慢速 */
+volatile int16_t  g_entry_max_steer = 600;      /* 切入黑线瞬间的最大差速转向限制 */
 
 extern volatile LSM6DSV_Attitude_t g_imu_attitude;
 extern LSM6DSV_Handle_t lsm6dsv_dev;
@@ -182,6 +187,17 @@ void SysTick_Handler(void)
     g_line_pos   = Grayscale_GetLinePosition();
     g_line_state = Grayscale_GetState();
 
+    // 1. 用于串口画图的显示数据：采用较强的低通滤波 (alpha = 0.22f) 消除阶梯感，让波形在上位机上圆润美观
+    static float tele_filtered_line_pos = 0.0f;
+    float tele_alpha = 0.22f;
+    tele_filtered_line_pos = tele_alpha * g_line_pos + (1.0f - tele_alpha) * tele_filtered_line_pos;
+    Debug_UART_PrintFloat(tele_filtered_line_pos);
+
+    // 2. 用于控制的真实反馈数据：采用极轻微的低通滤波 (alpha = 0.8f) 保留高实时性（延迟仅2.5ms），避免PID相位滞后引起震荡
+    static float ctrl_filtered_line_pos = 0.0f;
+    float ctrl_alpha = 0.8f;
+    ctrl_filtered_line_pos = ctrl_alpha * g_line_pos + (1.0f - ctrl_alpha) * ctrl_filtered_line_pos;
+
     // 非运行状态下仅进行蜂鸣器/LED倒计时清除，不执行小车运动控制
     if (!g_running) {
         Motor_Set(&MotorA, g_targetA);
@@ -200,6 +216,14 @@ void SysTick_Handler(void)
     // 状态切换检测（仅在运行时进行，避免待机干扰）
     static uint8_t last_g_line_state = LINE_NONE;
     if (g_line_state != last_g_line_state) {
+        if (last_g_line_state == LINE_NONE && g_line_state == LINE_TRACK) {
+            g_entry_slow_ticks = 50; // 触发最大 500ms 的自适应切入减速缓冲区
+            
+            // 重置循迹 PID 状态，消除以前累积的积分和微分残留，防止切入瞬间突变
+            pid_line.integral = 0.0f;
+            pid_line.last_err = 0.0f;
+            pid_line.err = 0.0f;
+        }
         last_g_line_state = g_line_state;
         g_beep_ticks = 50; // 状态切换声光提示 50 滴答 = 500ms
     }
@@ -219,27 +243,43 @@ void SysTick_Handler(void)
     switch (g_line_state){
 			case LINE_TRACK:
 				{
-            // 在黑线循迹期间，释放 Yaw 锁定，为下一次出黑线锁死偏航角做准备
-            g_yaw_ctrl.locked = 0;
+            // 在黑线循迹期间，释放 Yaw 锁定，为下一次出黑线锁死偏航角做准备。如果是外部预设的目标角 (2)，则保留不修改
+            if (g_yaw_ctrl.locked != 2) {
+                g_yaw_ctrl.locked = 0;
+            }
             
             // 重置 Yaw PID 状态，防止上一次白区控制的残留积分/微分项干扰下一次进入
             g_yaw_ctrl.pid.integral = 0.0f;
             g_yaw_ctrl.pid.last_err = 0.0f;
             g_yaw_ctrl.pid.err = 0.0f;
 
-            PID_Update(&pid_line, 0, (int32_t)(g_line_pos * 100));
+            PID_Update(&pid_line, 0, (int32_t)(ctrl_filtered_line_pos * 100));
             int16_t steer_pwm = pid_line.output;
 
-            // 限制最大转向控制量
-            if (steer_pwm > g_max_steer) steer_pwm = g_max_steer;
-            if (steer_pwm < -g_max_steer) steer_pwm = -g_max_steer;
+            // 检查是否提前结束切入慢速捕获期（中间两个通道 M1, M2 只要有一个压在黑线上即视为对齐成功）
+            if (g_entry_slow_ticks > 0) {
+                if (gray_value[1] == 1 || gray_value[2] == 1) {
+                    g_entry_slow_ticks = 0;
+                }
+            }
 
-            // 转向幅度大，则降低当前行驶速度
-            int16_t current_base_speed = g_line_base_speed - (int16_t)(abs(steer_pwm) * g_speed_drop_factor);
-            // 限制最低基础速度，防止降速太多甚至倒退（保证小车持续向前）
-            int16_t min_speed = g_line_base_speed / 3;
-            if (current_base_speed < min_speed) {
-                current_base_speed = min_speed;
+            // 限制最大转向控制量（若在切入强制减速期间，允许更大的转向差速上限以提供足够的偏航扭矩）
+            int16_t current_max_steer = (g_entry_slow_ticks > 0) ? g_entry_max_steer : g_max_steer;
+            if (steer_pwm > current_max_steer) steer_pwm = current_max_steer;
+            if (steer_pwm < -current_max_steer) steer_pwm = -current_max_steer;
+
+            // 转向车速分配：如果是刚从白区切入，且尚未完成对齐，强制执行低速过渡，之后恢复正常动态减速
+            int16_t current_base_speed;
+            if (g_entry_slow_ticks > 0) {
+                g_entry_slow_ticks--;
+                current_base_speed = g_entry_slow_speed;
+            } else {
+                current_base_speed = g_line_base_speed - (int16_t)(abs(steer_pwm) * g_speed_drop_factor);
+                // 限制最低基础速度，防止降速太多甚至停滞
+                int16_t min_speed = g_line_base_speed / 2;
+                if (current_base_speed < min_speed) {
+                    current_base_speed = min_speed;
+                }
             }
 
             left_speed = current_base_speed - steer_pwm;
@@ -250,10 +290,16 @@ void SysTick_Handler(void)
 		  case LINE_NONE:
 			default:
         {
-            if (!g_yaw_ctrl.locked) {
+            if (g_yaw_ctrl.locked == 0) {
                 g_yaw_ctrl.target_yaw = g_imu_attitude.yaw;  // 记录进入瞬间的 Yaw 角作为直行目标
                 g_yaw_ctrl.locked = 1;
                 // 锁定时清零 PID 状态，确保平滑过渡
+                g_yaw_ctrl.pid.integral = 0.0f;
+                g_yaw_ctrl.pid.last_err = 0.0f;
+                g_yaw_ctrl.pid.err = 0.0f;
+            } else if (g_yaw_ctrl.locked == 2) {
+                g_yaw_ctrl.locked = 1; // 转换为普通锁定状态，以便下一次出黑线时能正常工作
+                // 清零 PID 状态，确保平滑过渡（保留外部预设好的 target_yaw）
                 g_yaw_ctrl.pid.integral = 0.0f;
                 g_yaw_ctrl.pid.last_err = 0.0f;
                 g_yaw_ctrl.pid.err = 0.0f;

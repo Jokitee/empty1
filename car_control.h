@@ -4,7 +4,7 @@
 #include "ti_msp_dl_config.h"
 
 /* ========== 物理/控制常数 ========== */
-#define PWM_MAX             1400
+#define PWM_MAX             1500
 
 /* ========== 电机控制结构体与声明 ========== */
 typedef struct {

@@ -152,7 +152,10 @@ void Task3_Process(void)
         step++;
     }
 		
-		if(g_line_state == 2)g_yaw_ctrl.target_yaw = 180.0;
+		if(step == 2) {
+            g_yaw_ctrl.target_yaw = 180.0;
+            g_yaw_ctrl.locked = 2; // 预设目标角，不允许 SysTick 覆盖
+        }
 		
     // "8" 字形路径：C,B,D,A
     if (step >= 4) {
@@ -185,8 +188,12 @@ void Task4_Process(void)
 		switch(step){
 			case 2:
 				g_yaw_ctrl.target_yaw = 180.0;
+				g_yaw_ctrl.locked = 2; // 预设目标角
+				break;
 			case 0:
 				g_yaw_ctrl.target_yaw = 0.0;
+				g_yaw_ctrl.locked = 2; // 预设目标角
+				break;
 			default:
 				break;
 		}

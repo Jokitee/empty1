@@ -24,5 +24,6 @@ void Debug_UART_PrintIMU(LSM6DSV_Handle_t *handle, bool imu_status);
 void Debug_UART_PrintYaw(float yaw);
 
 void Debug_UART(float number);
+void Debug_UART_PrintFloat(float val);
 
 #endif /* UART_DEBUG_H */

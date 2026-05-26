@@ -146,6 +146,23 @@ void Debug_UART(float number)
     UART_SendString("\r\n");
 }
 
+void Debug_UART_PrintFloat(float val)
+{
+    int32_t val_i = (int32_t)(val * 100.0f);
+    if (val_i < 0) {
+        UART_SendChar('-');
+        val_i = -val_i;
+    }
+    UART_SendInt(val_i / 100);
+    UART_SendChar('.');
+    int32_t frac = val_i % 100;
+    if (frac < 10) {
+        UART_SendChar('0');
+    }
+    UART_SendInt(frac);
+    UART_SendString("\r\n");
+}
+
 //// Keil MDK (AC5 / AC6) printf 重定向
 //#if defined(__CC_ARM) || defined(__ARMCC_VERSION)
 //int fputc(int ch, FILE *f)
