@@ -4,7 +4,7 @@
 #include "ti_msp_dl_config.h"
 
 /* ========== 物理/控制常数 ========== */
-#define PWM_MAX             2100
+#define PWM_MAX             1400
 
 /* ========== 电机控制结构体与声明 ========== */
 typedef struct {
@@ -61,6 +61,9 @@ extern volatile float    g_line_pos;        /* 灰度计算得到的偏差值 (-
 extern volatile uint8_t  g_line_state;      /* 循迹状态 */
 extern volatile uint8_t  g_running;         /* 闭环运行标志位: 1=循迹运行, 0=开环直通/停止 */
 extern volatile int16_t  g_line_base_speed; /* 闭环循迹时的基础速度 (可由外部任务动态修改) */
+extern volatile int16_t  g_max_steer;        /* 循迹时的最大转向控制量 */
+extern volatile float    g_speed_drop_factor;/* 转向大时速度降低系数 */
+extern volatile float    g_gray_weights[GRAY_NUM]; /* 四路循迹传感器权重 */
 extern volatile uint16_t g_beep_ticks;      /* 非阻塞蜂鸣器/LED报警滴答计数 */
 
 /* ========== 系统与控制核心接口 ========== */

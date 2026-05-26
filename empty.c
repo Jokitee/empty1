@@ -7,6 +7,7 @@
 volatile LSM6DSV_Attitude_t g_imu_attitude = {0.0f, 0.0f, 0.0f};
 LSM6DSV_Handle_t lsm6dsv_dev;
 volatile bool g_imu_status = false;
+extern YawController_t g_yaw_ctrl;
 
 /* ========== 工作模式与状态变量 ========== */
 typedef enum {
@@ -150,7 +151,9 @@ void Task3_Process(void)
         last_state = g_line_state;
         step++;
     }
-    
+		
+		if(g_line_state == 2)g_yaw_ctrl.target_yaw = 180.0;
+		
     // "8" 字形路径：C,B,D,A
     if (step >= 4) {
         Car_Stop();
@@ -163,6 +166,7 @@ void Task4_Process(void)
 {
     /* 模式四：连续行驶 4 圈 "8" 字往返 */
     static uint8_t step = 0;
+		static uint8_t circle = 0;
     static LineState_t last_state = LINE_NONE;
     
     Car_TrackLine(g_line_start_speed);
@@ -177,9 +181,23 @@ void Task4_Process(void)
         last_state = g_line_state;
         step++;
     }
+		
+		switch(step){
+			case 2:
+				g_yaw_ctrl.target_yaw = 180.0;
+			case 0:
+				g_yaw_ctrl.target_yaw = 0.0;
+			default:
+				break;
+		}
+		
+		if (step >= 4){
+				step = 0;
+				circle++;	
+		}
     
-    // 4 圈 * 4 次切换 = 16 次状态改变后完成回 A 停车
-    if (step >= 16) {
+    // 4 圈后完成回 A 停车
+    if (circle >= 4) {
         Car_Stop();
         g_task_success = 1;
         g_task_confirmed = 0;
@@ -210,25 +228,7 @@ int main(void)
 
     while (1)
     {
-//				// 每 200ms 通过串口输出 Yaw 调试信息
-//        static uint8_t print_counter = 0;
-//        print_counter++;
-//        if (print_counter >= 20) {
-//            print_counter = 0;
-//            if (g_imu_status) {
-//                UART_SendString("yaw=");     UART_SendInt((int32_t)(g_imu_attitude.yaw * 100.0f));
-//                UART_SendString(" tgt=");    UART_SendInt((int32_t)(g_yaw_ctrl.target_yaw * 100.0f));
-//                UART_SendString(" out=");    UART_SendInt((int32_t)g_yaw_ctrl.pid.output); // 打印 Yaw PID 的最终输出 PWM 差值
-//                UART_SendString(" lk=");     UART_SendInt((int32_t)g_yaw_ctrl.locked);
-//                UART_SendString(" st=");     UART_SendInt((int32_t)g_line_state);
-//                UART_SendString(" run=");    UART_SendInt((int32_t)g_running);
-//                UART_SendString(" fail=");   UART_SendInt((int32_t)lsm6dsv_dev.diag_read_fail);
-//                UART_SendString("/");
-//                UART_SendInt((int32_t)lsm6dsv_dev.diag_read_total);
-//                UART_SendString("\r\n");
-//            }
-//        }
-				
+			
         delay_ms(10);
         
         /* 处理来自 MODE 按键 ISR 的请求 */
@@ -277,7 +277,6 @@ int main(void)
             }
         }
         
-        // IMU 更新已移至 SysTick_Handler 中，以 100Hz 稳定频率执行
 
         /* 再处理 Yaw 清零请求 */
         if (g_yaw_reset_req) {
@@ -287,8 +286,7 @@ int main(void)
             g_yaw_ctrl.locked = 0;     // yaw 和 target 均已归零后，才允许 SysTick 重新锁定
                                        // → SysTick 下一帧在 LINE_NONE 时将以 0° 为起点锁定
         }
-        
-        
+				
         
         /* 待机状态下红灯每秒自动闪烁当前任务对应次数 */
         if (!g_task_confirmed && g_selected_mode != Task_0) {
@@ -300,6 +298,7 @@ int main(void)
         } else {
             g_idle_led_counter = 0;
         }
+				
         
         /* 任务运行与分配器 */
         if (g_task_confirmed) 

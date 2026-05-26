@@ -1,4 +1,7 @@
 #include "uart_debug.h"
+#include <stdio.h>
+#include <rt_sys.h>
+
 
 void UART_SendChar(char ch)
 {
@@ -132,7 +135,7 @@ void Debug_UART_PrintYaw(float yaw)
     UART_SendString("\r\n");
 }
 
-/* ������������� */
+/* 范定义输出函数 */
 void Debug_UART(float number)
 {
     int32_t yaw_i = (int32_t)(number * 10.0f);
@@ -142,3 +145,79 @@ void Debug_UART(float number)
     UART_SendInt((yaw_i < 0 ? -yaw_i : yaw_i) % 10);
     UART_SendString("\r\n");
 }
+
+//// Keil MDK (AC5 / AC6) printf 重定向
+//#if defined(__CC_ARM) || defined(__ARMCC_VERSION)
+//int fputc(int ch, FILE *f)
+//{
+//    UART_SendChar(ch);
+//    return ch;
+//}
+
+//#if !defined(__MICROLIB)
+//// 非 MicroLib 且禁用半主机模式下，必须重写低级 I/O 接口 (避免 L6915E 错误)
+//__asm(".global __use_no_semihosting\n\t");
+
+//FILEHANDLE _sys_open(const char *name, int openmode)
+//{
+//    return 1; // 返回一个虚拟非0句柄表示成功
+//}
+
+//int _sys_close(FILEHANDLE fh)
+//{
+//    return 0;
+//}
+
+//int _sys_write(FILEHANDLE fh, const unsigned char *buf, unsigned len, int mode)
+//{
+//    unsigned int i;
+//    for (i = 0; i < len; i++)
+//    {
+//        UART_SendChar(buf[i]);
+//    }
+//    return 0; // 返回0表示成功写入
+//}
+
+//int _sys_read(FILEHANDLE fh, unsigned char *buf, unsigned len, int mode)
+//{
+//    return -1;
+//}
+
+//int _sys_istty(FILEHANDLE fh)
+//{
+//    return 1;
+//}
+
+//int _sys_seek(FILEHANDLE fh, long pos)
+//{
+//    return -1;
+//}
+
+//long _sys_flen(FILEHANDLE fh)
+//{
+//    return 0;
+//}
+
+//void _sys_exit(int return_code)
+//{
+//    while (1);
+//}
+
+//void _ttywrch(int ch)
+//{
+//    UART_SendChar(ch);
+//}
+//#endif
+
+//// GCC 编译器 (CCS / GCC) printf 重定向
+//#elif defined(__GNUC__)
+//int _write(int fd, char *ptr, int len)
+//{
+//    int i;
+//    for (i = 0; i < len; i++)
+//    {
+//        UART_SendChar(ptr[i]);
+//    }
+//    return len;
+//}
+//#endif

@@ -219,7 +219,7 @@ static const DL_TimerG_ClockConfig gPWM_AINClockConfig = {
 
 static const DL_TimerG_PWMConfig gPWM_AINConfig = {
     .pwmMode = DL_TIMER_PWM_MODE_EDGE_ALIGN_UP,
-    .period = 2399,
+    .period = 1599,
     .isTimerWithFourCC = false,
     .startTimer = DL_TIMER_START,
 };
@@ -267,7 +267,7 @@ static const DL_TimerG_ClockConfig gPWM_BINClockConfig = {
 
 static const DL_TimerG_PWMConfig gPWM_BINConfig = {
     .pwmMode = DL_TIMER_PWM_MODE_EDGE_ALIGN_UP,
-    .period = 2399,
+    .period = 1599,
     .isTimerWithFourCC = false,
     .startTimer = DL_TIMER_START,
 };

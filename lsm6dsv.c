@@ -435,15 +435,6 @@ bool LSM6DSV_BootCalibrate(LSM6DSV_Handle_t *handle, volatile LSM6DSV_Attitude_t
     attitude->pitch = 0.0f;
     attitude->yaw = 0.0f; // Yaw 轴初始清零
 
-    // 5. 串口打印校准结果以供调试
-    UART_SendString("IMU Bias Calibrated: X=");
-    UART_SendInt((int32_t)(mean_gx * 1000.0f));
-    UART_SendString(" Y=");
-    UART_SendInt((int32_t)(mean_gy * 1000.0f));
-    UART_SendString(" Z=");
-    UART_SendInt((int32_t)(mean_gz * 1000.0f));
-    UART_SendString(" (mdps)\r\n");
-
     return true;
 }
 

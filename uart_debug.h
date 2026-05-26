@@ -3,6 +3,7 @@
 
 #include "ti_msp_dl_config.h"
 #include "lsm6dsv.h"
+#include <stdio.h>
 
 // Send a single character via UART (non-blocking with timeout)
 void UART_SendChar(char ch);

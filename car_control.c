@@ -1,5 +1,6 @@
 #include "car_control.h"
 #include "lsm6dsv.h"
+#include <stdlib.h>
 
 /* TIMG0 and TIMG6 are TimerG which only have 2 channels (CC_0 and CC_1) */
 Motor_t MotorA = {TIMG0, DL_TIMER_CC_0_INDEX, DL_TIMER_CC_1_INDEX};
@@ -9,7 +10,7 @@ Motor_t MotorB = {TIMG6, DL_TIMER_CC_0_INDEX, DL_TIMER_CC_1_INDEX};
 uint8_t gray_value[GRAY_NUM];
 
 /* 循迹转向PID */
-PID_t pid_line = {50.0f, 0.0f, 10.0f, 0, 0, 0, 0};
+PID_t pid_line = {10.0f, 0.0f, 5.0f, 0, 0, 0, 0};
 /* 陀螺仪 Yaw 偏航角控制 PID 及状态 */
 YawController_t g_yaw_ctrl = {
     .pid = {1.5f, 0.0f, 0.5f, 0, 0, 0, 0},
@@ -23,7 +24,12 @@ volatile int16_t  g_targetB = 0;
 volatile float    g_line_pos = 0.0f;
 volatile uint8_t  g_line_state = LINE_NONE;
 volatile uint8_t  g_running = 0;
-volatile int16_t  g_line_base_speed = 1400;
+volatile int16_t  g_line_base_speed = 900;
+volatile int16_t  g_line_start_speed = 950;
+volatile int16_t  g_max_steer = 100;           /* 最大转向限制 (Steer PWM 限制) */
+volatile float    g_speed_drop_factor = 0.5f;  /* 转向大时速度降低系数 */
+/* 四路循迹传感器权重（偏移量量化值，正值表示偏左，负值表示偏右） */
+volatile float    g_gray_weights[GRAY_NUM] = {1.5f, 0.5f, -0.5f, -1.5f};
 
 extern volatile LSM6DSV_Attitude_t g_imu_attitude;
 extern LSM6DSV_Handle_t lsm6dsv_dev;
@@ -123,18 +129,18 @@ LineState_t Grayscale_GetState(void)
  */
 float Grayscale_GetLinePosition(void)
 {
-    const float weights[GRAY_NUM] = {-0.5f, 0.5f};
-    int32_t sum = 0, cnt = 0;
+    float sum = 0.0f;
+    int32_t cnt = 0;
     
-    for (uint8_t i = 1; i < GRAY_NUM - 1; i++) {
+    for (uint8_t i = 0; i < GRAY_NUM; i++) {
         if (gray_value[i]) {
-            sum += (int32_t)(weights[i] * 10);
+            sum += g_gray_weights[i];
             cnt++;
         }
     }
     
-    if (cnt == 0) return 0;
-    return (float)sum / (cnt * 10);
+    if (cnt == 0) return 0.0f;
+    return sum / cnt;
 }
 
 /**
@@ -224,12 +230,20 @@ void SysTick_Handler(void)
             PID_Update(&pid_line, 0, (int32_t)(g_line_pos * 100));
             int16_t steer_pwm = pid_line.output;
 
-            int16_t max_steer = 100;
-            if (steer_pwm > max_steer) steer_pwm = max_steer;
-            if (steer_pwm < -max_steer) steer_pwm = -max_steer;
+            // 限制最大转向控制量
+            if (steer_pwm > g_max_steer) steer_pwm = g_max_steer;
+            if (steer_pwm < -g_max_steer) steer_pwm = -g_max_steer;
 
-            left_speed = g_line_base_speed - steer_pwm;
-            right_speed = g_line_base_speed + steer_pwm;
+            // 转向幅度大，则降低当前行驶速度
+            int16_t current_base_speed = g_line_base_speed - (int16_t)(abs(steer_pwm) * g_speed_drop_factor);
+            // 限制最低基础速度，防止降速太多甚至倒退（保证小车持续向前）
+            int16_t min_speed = g_line_base_speed / 3;
+            if (current_base_speed < min_speed) {
+                current_base_speed = min_speed;
+            }
+
+            left_speed = current_base_speed - steer_pwm;
+            right_speed = current_base_speed + steer_pwm;
 						
             break;
         }
@@ -251,9 +265,16 @@ void SysTick_Handler(void)
             if (steer > max_steer) steer = max_steer;
             if (steer < -max_steer) steer = -max_steer;
             
+            // 同样，如果在直道纠偏时偏差过大，也适当降低行驶速度
+            int16_t current_base_speed = g_line_base_speed - (int16_t)(abs(steer / 2) * g_speed_drop_factor);
+            int16_t min_speed = g_line_base_speed / 3;
+            if (current_base_speed < min_speed) {
+                current_base_speed = min_speed;
+            }
+            
             // 根据输出的steer调整两轮差速，steer>0时左轮减速右轮加速，小车向左转
-            left_speed  = g_line_base_speed + steer / 2;
-            right_speed = g_line_base_speed - steer / 2;
+            left_speed  = current_base_speed + steer / 2;
+            right_speed = current_base_speed - steer / 2;
             
             break;
         }
