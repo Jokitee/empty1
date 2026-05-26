@@ -528,4 +528,8 @@ void LSM6DSV_UpdateAttitude(LSM6DSV_Handle_t *handle, volatile LSM6DSV_Attitude_
     if (delta_yaw < -max_change) delta_yaw = -max_change;
 
     attitude->yaw += delta_yaw;
+
+    /* 归一化 Yaw 到 [-180, +180]，防止长时间运行后数值溢出 */
+    while (attitude->yaw >  180.0f) attitude->yaw -= 360.0f;
+    while (attitude->yaw < -180.0f) attitude->yaw += 360.0f;
 }

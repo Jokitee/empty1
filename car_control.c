@@ -9,11 +9,13 @@ Motor_t MotorB = {TIMG6, DL_TIMER_CC_0_INDEX, DL_TIMER_CC_1_INDEX};
 uint8_t gray_value[GRAY_NUM];
 
 /* 循迹转向PID */
-PID_t pid_line = {100.0f, 0.0f, 50.0f, 0, 0, 0, 0};
-/* 陀螺仪 Yaw 偏航角控制 PID */
-/* Kp=10.0: 1°误差→1000 PWM差速，提供强劲纠偏，克服电机机械偏差，防止走偏 */
-/* Kd=1.5: 增加微分阻尼，避免强Kp带来的振荡，抑制高频噪声                          */
-PID_t pid_yaw = {10.0f, 0.0f, 1.5f, 0, 0, 0, 0};
+PID_t pid_line = {50.0f, 0.0f, 10.0f, 0, 0, 0, 0};
+/* 陀螺仪 Yaw 偏航角控制 PID 及状态 */
+YawController_t g_yaw_ctrl = {
+    .pid = {1.5f, 0.0f, 0.5f, 0, 0, 0, 0},
+    .target_yaw = 0.0f,
+    .locked = 0
+};
 
 /* 循迹/控制全局变量 */
 volatile int16_t  g_targetA = 0;
@@ -21,11 +23,11 @@ volatile int16_t  g_targetB = 0;
 volatile float    g_line_pos = 0.0f;
 volatile uint8_t  g_line_state = LINE_NONE;
 volatile uint8_t  g_running = 0;
-volatile int16_t  g_line_base_speed = 1500;
+volatile int16_t  g_line_base_speed = 1400;
 
 extern volatile LSM6DSV_Attitude_t g_imu_attitude;
-volatile float    g_target_yaw = 0.0f;
-volatile uint8_t  g_yaw_locked = 0;
+extern LSM6DSV_Handle_t lsm6dsv_dev;
+extern volatile bool g_imu_status;
 volatile uint16_t g_beep_ticks = 0;
 
 /**
@@ -92,10 +94,10 @@ int16_t SteerControl(float line_pos)
 void Grayscale_ReadAll(void)
 {
     uint32_t pins = DL_GPIO_readPins(GPIOA, GRAY_ALL_PINS);
-    gray_value[0] = (pins & GRAY_L1_PIN) ? 0 : 1;   /* 左内 L1 */
-    gray_value[1] = (pins & GRAY_M1_PIN) ? 0 : 1;   /* 中左 M1 */
-    gray_value[2] = (pins & GRAY_M2_PIN) ? 0 : 1;   /* 中右 M2 */
-    gray_value[3] = (pins & GRAY_R1_PIN) ? 0 : 1;   /* 右内 R1 */
+    gray_value[0] = (pins & GRAY_L1_PIN) ? 1 : 0;   /* 左内 L1 (白=1, 黑=0) */
+    gray_value[1] = (pins & GRAY_M1_PIN) ? 1 : 0;   /* 中左 M1 (白=1, 黑=0) */
+    gray_value[2] = (pins & GRAY_M2_PIN) ? 1 : 0;   /* 中右 M2 (白=1, 黑=0) */
+    gray_value[3] = (pins & GRAY_R1_PIN) ? 1 : 0;   /* 右内 R1 (白=1, 黑=0) */
 }
 
 /**
@@ -103,23 +105,25 @@ void Grayscale_ReadAll(void)
  */
 LineState_t Grayscale_GetState(void)
 {
+		//uint8_t l2 = gray_value[0];
     uint8_t l1 = gray_value[0];
     uint8_t m1 = gray_value[1];
     uint8_t m2 = gray_value[2];
     uint8_t r1 = gray_value[3];
+		//uint8_t r2 = gray_value[5];
     
     uint8_t total = l1 + m1 + m2 + r1;
 
-    if (total == 0) return LINE_NONE;   /* 四路全白：白区 */
+    if (total == 0) return LINE_NONE;   /* 4路全白：白区 */
     return LINE_TRACK;                  /* 任意一路非白：检测到路标横线 */
 }
 
 /**
- * @brief  计算当前线路位置偏差 (-2.5 ~ +2.5)
+ * @brief  计算当前线路位置偏差 (-1.5 ~ +1.5)
  */
 float Grayscale_GetLinePosition(void)
 {
-    const float weights[GRAY_NUM] = {0.0f, -1.0f, 1.0f, 0.0f};
+    const float weights[GRAY_NUM] = {-0.5f, 0.5f};
     int32_t sum = 0, cnt = 0;
     
     for (uint8_t i = 1; i < GRAY_NUM - 1; i++) {
@@ -162,7 +166,12 @@ void PID_Update(PID_t *pid, int32_t target, int32_t actual)
  */
 void SysTick_Handler(void)
 {
-    // 在定时器中断最前端采集传感器数据，确保控制闭环时间同步并防止数据竞争
+    // 1. 定时器最前端先采集 IMU 数据并积分 (固定 100Hz = 0.01s)
+    if (g_imu_status) {
+        LSM6DSV_UpdateAttitude(&lsm6dsv_dev, &g_imu_attitude, 0.01f);
+    }
+
+    // 2. 采集灰度传感器数据，确保控制闭环时间同步并防止数据竞争
     Grayscale_ReadAll();
     g_line_pos   = Grayscale_GetLinePosition();
     g_line_state = Grayscale_GetState();
@@ -205,54 +214,48 @@ void SysTick_Handler(void)
 			case LINE_TRACK:
 				{
             // 在黑线循迹期间，释放 Yaw 锁定，为下一次出黑线锁死偏航角做准备
-            g_yaw_locked = 0;
+            g_yaw_ctrl.locked = 0;
             
             // 重置 Yaw PID 状态，防止上一次白区控制的残留积分/微分项干扰下一次进入
-            pid_yaw.integral = 0.0f;
-            pid_yaw.last_err = 0.0f;
-            pid_yaw.err = 0.0f;
+            g_yaw_ctrl.pid.integral = 0.0f;
+            g_yaw_ctrl.pid.last_err = 0.0f;
+            g_yaw_ctrl.pid.err = 0.0f;
 
             PID_Update(&pid_line, 0, (int32_t)(g_line_pos * 100));
             int16_t steer_pwm = pid_line.output;
 
-            int16_t max_steer = g_line_base_speed / 2;
+            int16_t max_steer = 100;
             if (steer_pwm > max_steer) steer_pwm = max_steer;
             if (steer_pwm < -max_steer) steer_pwm = -max_steer;
 
-            if (steer_pwm >= 0) {
-                left_speed = g_line_base_speed - steer_pwm;
-                right_speed = g_line_base_speed;
-            } else {
-                left_speed = g_line_base_speed;
-                right_speed = g_line_base_speed + steer_pwm;
-            }
+            left_speed = g_line_base_speed - steer_pwm;
+            right_speed = g_line_base_speed + steer_pwm;
 						
-						break;
+            break;
         }
 		  case LINE_NONE:
 			default:
         {
-            // 进入白色无轨区，以进入瞬间的 Yaw 角为目标，使用 Yaw PID 闭环控直行
-            if (!g_yaw_locked) {
-                g_target_yaw = 0.0f;  // 记录进入瞬间的 Yaw 角作为直行目标
-                g_yaw_locked = 1;
-                // 锁定时也清零 PID 状态，确保平滑过渡
-                pid_yaw.integral = 0.0f;
-                pid_yaw.last_err = 0.0f;
-                pid_yaw.err = 0.0f;
+            if (!g_yaw_ctrl.locked) {
+                g_yaw_ctrl.target_yaw = g_imu_attitude.yaw;  // 记录进入瞬间的 Yaw 角作为直行目标
+                g_yaw_ctrl.locked = 1;
+                // 锁定时清零 PID 状态，确保平滑过渡
+                g_yaw_ctrl.pid.integral = 0.0f;
+                g_yaw_ctrl.pid.last_err = 0.0f;
+                g_yaw_ctrl.pid.err = 0.0f;
             }
 
-            int16_t steer = YawControl(g_target_yaw, g_imu_attitude.yaw);
+            int16_t steer = YawControl(g_yaw_ctrl.target_yaw, g_imu_attitude.yaw);
 
-						int16_t max_steer = g_line_base_speed / 2;
-						if (steer > max_steer) steer = max_steer;
+            int16_t max_steer = g_line_base_speed / 3;
+            if (steer > max_steer) steer = max_steer;
             if (steer < -max_steer) steer = -max_steer;
-						
-            /* 对称差速：两轮各承担一半差值，平均速度始终保持 base_speed */
-            left_speed  = g_line_base_speed - steer / 2;
-            right_speed = g_line_base_speed + steer / 2;
-						
-						break;
+            
+            // 根据输出的steer调整两轮差速，steer>0时左轮减速右轮加速，小车向左转
+            left_speed  = g_line_base_speed + steer / 2;
+            right_speed = g_line_base_speed - steer / 2;
+            
+            break;
         }
 			}
 
@@ -303,6 +306,9 @@ void Car_Stop(void)
     Motor_Brake(&MotorB);
 }
 
+// 偏航角控制极性翻转标志。如果发现小车不仅不纠偏反而加速偏离目标方向，请将此宏改为 -1.0f 
+#define YAW_PID_POLARITY (1.0f)
+
 /**
  * @brief  偏航角 (Yaw) PID 控制器转向计算
  * @param  target_yaw  目标角度 (度，-180 ~ +180)
@@ -311,14 +317,38 @@ void Car_Stop(void)
  */
 int16_t YawControl(float target_yaw, float current_yaw)
 {
-    /* 计算角度差并归一化到 [-180, +180]，防止跨越 ±180° 时误差突变 */
-    float angle_diff = target_yaw - current_yaw;
-    while (angle_diff >  180.0f) angle_diff -= 360.0f;
-    while (angle_diff < -180.0f) angle_diff += 360.0f;
+    /* 1. 计算角度偏差并归一化到 [-180, +180] */
+    float err = target_yaw - current_yaw;
+    while (err >  180.0f) err -= 360.0f;
+    while (err < -180.0f) err += 360.0f;
 
-    /* 以归一化角度差为误差送入 PID，target=err*100，actual=0 */
-    PID_Update(&pid_yaw, (int32_t)(angle_diff * 100.0f), 0);
-    return pid_yaw.output;
+    /* 应用控制极性，如果出现正反馈画圈，通过改变极性解决 */
+    err *= YAW_PID_POLARITY;
+
+    /* 2. 更新误差项 (直接使用真实的物理角度差，不强制转int，保留浮点精度) */
+    g_yaw_ctrl.pid.err = err;
+    
+    /* 3. 积分累加及抗饱和限幅 (积分阈值设为 20.0 度) */
+    g_yaw_ctrl.pid.integral += g_yaw_ctrl.pid.err;
+    if (g_yaw_ctrl.pid.integral >  20.0f) g_yaw_ctrl.pid.integral =  20.0f;
+    if (g_yaw_ctrl.pid.integral < -20.0f) g_yaw_ctrl.pid.integral = -20.0f;
+    
+    /* 4. 计算 PID 输出 
+       (为了兼容原有 PID 参数 kp=3.0 等的调参手感，原有逻辑中将角度放大了 100 倍，
+        这里将最终乘积放大 100 倍，以保持对电机的控制输出增益等效) */
+    float out = (g_yaw_ctrl.pid.kp * g_yaw_ctrl.pid.err 
+               + g_yaw_ctrl.pid.ki * g_yaw_ctrl.pid.integral 
+               + g_yaw_ctrl.pid.kd * (g_yaw_ctrl.pid.err - g_yaw_ctrl.pid.last_err)) * 100.0f;
+               
+    /* 5. 记录上一次误差 */
+    g_yaw_ctrl.pid.last_err = g_yaw_ctrl.pid.err;
+
+    /* 6. 输出幅值限幅 */
+    if (out > PWM_MAX) out = PWM_MAX;
+    if (out < -PWM_MAX) out = -PWM_MAX;
+
+    g_yaw_ctrl.pid.output = (int16_t)out;
+    return g_yaw_ctrl.pid.output;
 }
 
 /**

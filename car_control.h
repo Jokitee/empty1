@@ -44,7 +44,15 @@ typedef struct {
 } PID_t;
 
 extern PID_t pid_line;
-extern PID_t pid_yaw;
+
+/* ========== Yaw 控制结构体 ========== */
+typedef struct {
+    PID_t pid;
+    volatile float target_yaw;
+    volatile uint8_t locked;
+} YawController_t;
+
+extern YawController_t g_yaw_ctrl;
 
 /* ========== 循迹/控制全局变量 ========== */
 extern volatile int16_t  g_targetA;         /* 启动阶段或开环控制下的电机 A 目标 PWM */
@@ -53,8 +61,6 @@ extern volatile float    g_line_pos;        /* 灰度计算得到的偏差值 (-
 extern volatile uint8_t  g_line_state;      /* 循迹状态 */
 extern volatile uint8_t  g_running;         /* 闭环运行标志位: 1=循迹运行, 0=开环直通/停止 */
 extern volatile int16_t  g_line_base_speed; /* 闭环循迹时的基础速度 (可由外部任务动态修改) */
-extern volatile float    g_target_yaw;      /* 陀螺仪直行锁定目标偏航角 */
-extern volatile uint8_t  g_yaw_locked;      /* 陀螺仪偏航角锁存标志位 */
 extern volatile uint16_t g_beep_ticks;      /* 非阻塞蜂鸣器/LED报警滴答计数 */
 
 /* ========== 系统与控制核心接口 ========== */
