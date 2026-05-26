@@ -33,8 +33,10 @@ volatile float    g_speed_drop_factor = 1.2f;  /* 转向大时速度降低系数
 volatile float    g_gray_weights[GRAY_NUM] = {1.7f, 0.4f, -0.4f, -1.7f};
 
 volatile uint16_t g_entry_slow_ticks = 0;      /* 从白区切入黑线时的强制减速计数器 */
-volatile int16_t  g_entry_slow_speed = 550;     /* 切入黑线瞬间的基准慢速 */
-volatile int16_t  g_entry_max_steer = 600;      /* 切入黑线瞬间的最大差速转向限制 */
+volatile int16_t  g_entry_slow_speed = 300;     /* 切入黑线瞬间的基准慢速 */
+volatile int16_t  g_entry_max_steer = 850;      /* 切入黑线瞬间的最大差速转向限制 */
+volatile uint16_t g_entry_hold_ticks = 15;       /* 强制不退出的“真空时间”/死区时间 (8 = 80ms) */
+volatile uint16_t g_entry_max_ticks = 50;       /* 抓线捕获期的最大超时时间 (40 = 400ms) */
 
 extern volatile LSM6DSV_Attitude_t g_imu_attitude;
 extern LSM6DSV_Handle_t lsm6dsv_dev;
@@ -177,6 +179,9 @@ void PID_Update(PID_t *pid, int32_t target, int32_t actual)
  */
 void SysTick_Handler(void)
 {
+    static uint8_t last_g_line_state = LINE_NONE;
+    static float g_entry_dir = 0.0f; // 记录切入方向：+1.7f 表示左，-1.7f 表示右
+
     // 1. 定时器最前端先采集 IMU 数据并积分 (固定 100Hz = 0.01s)
     if (g_imu_status) {
         LSM6DSV_UpdateAttitude(&lsm6dsv_dev, &g_imu_attitude, 0.01f);
@@ -191,7 +196,7 @@ void SysTick_Handler(void)
     static float tele_filtered_line_pos = 0.0f;
     float tele_alpha = 0.22f;
     tele_filtered_line_pos = tele_alpha * g_line_pos + (1.0f - tele_alpha) * tele_filtered_line_pos;
-    Debug_UART_PrintFloat(tele_filtered_line_pos);
+    // Debug_UART_PrintFloat(tele_filtered_line_pos);
 
     // 2. 用于控制的真实反馈数据：采用极轻微的低通滤波 (alpha = 0.8f) 保留高实时性（延迟仅2.5ms），避免PID相位滞后引起震荡
     static float ctrl_filtered_line_pos = 0.0f;
@@ -202,6 +207,12 @@ void SysTick_Handler(void)
     if (!g_running) {
         Motor_Set(&MotorA, g_targetA);
         Motor_Set(&MotorB, g_targetB);
+        
+        // 待机状态下重置状态变量，保证下一次按下确认键启动时，状态切换检测 100% 触发
+        last_g_line_state = LINE_NONE;
+        g_entry_slow_ticks = 0;
+        g_entry_dir = 0.0f;
+        
         if (g_beep_ticks > 0) {
             g_beep_ticks--;
             DL_GPIO_setPins(RED_GPIO_PORT, RED_GPIO_PIN_0_PIN);
@@ -214,18 +225,34 @@ void SysTick_Handler(void)
     }
 
     // 状态切换检测（仅在运行时进行，避免待机干扰）
-    static uint8_t last_g_line_state = LINE_NONE;
     if (g_line_state != last_g_line_state) {
         if (last_g_line_state == LINE_NONE && g_line_state == LINE_TRACK) {
-            g_entry_slow_ticks = 50; // 触发最大 500ms 的自适应切入减速缓冲区
+            g_entry_slow_ticks = g_entry_max_ticks; // 使用动态可调的捕获最大时长
             
-            // 重置循迹 PID 状态，消除以前累积的积分和微分残留，防止切入瞬间突变
+            // 记录切入方向：L1 碰线则为左正，R1 碰线则为右负，否则根据偏移量正负判定
+            if (gray_value[0] == 1) g_entry_dir = 1.7f;
+            else if (gray_value[3] == 1) g_entry_dir = -1.7f;
+            else g_entry_dir = (g_line_pos > 0.0f) ? 1.7f : -1.7f;
+
+            // 重置循迹 PID 状态，消除以前累积的积分 and 微分残留，防止切入瞬间突变
             pid_line.integral = 0.0f;
             pid_line.last_err = 0.0f;
             pid_line.err = 0.0f;
         }
         last_g_line_state = g_line_state;
         g_beep_ticks = 50; // 状态切换声光提示 50 滴答 = 500ms
+    }
+
+
+
+    // 强行保持：在切入捕捉期内，无条件维持为 LINE_TRACK，且如果短暂丢线（全白），强制锁定偏差为切入方向以持续转弯
+    if (g_entry_slow_ticks > 0) {
+        g_line_state = LINE_TRACK;
+        uint8_t total_sensors = gray_value[0] + gray_value[1] + gray_value[2] + gray_value[3];
+        if (total_sensors == 0) {
+            g_line_pos = g_entry_dir;
+            ctrl_filtered_line_pos = g_entry_dir;
+        }
     }
 
     // 状态切换时的声光提示控制
@@ -256,8 +283,12 @@ void SysTick_Handler(void)
             PID_Update(&pid_line, 0, (int32_t)(ctrl_filtered_line_pos * 100));
             int16_t steer_pwm = pid_line.output;
 
-            // 检查是否提前结束切入慢速捕获期（中间两个通道 M1, M2 只要有一个压在黑线上即视为对齐成功）
+            // 若在切入强制减速期间，大幅提升转向输出增益，确保在 300 低速下能产生足够甩头的差速扭矩
             if (g_entry_slow_ticks > 0) {
+                steer_pwm = (int16_t)(steer_pwm * 1.8f);
+            }
+
+            if (g_entry_slow_ticks > 0 && g_entry_slow_ticks < (g_entry_max_ticks - g_entry_hold_ticks)) {
                 if (gray_value[1] == 1 || gray_value[2] == 1) {
                     g_entry_slow_ticks = 0;
                 }
