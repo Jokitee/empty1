@@ -25,7 +25,7 @@ volatile int16_t  g_targetB = 0;
 volatile float    g_line_pos = 0.0f;
 volatile uint8_t  g_line_state = LINE_NONE;
 volatile uint8_t  g_running = 0;
-volatile int16_t  g_line_base_speed = 1000;
+volatile int16_t  g_line_base_speed = 1050;
 volatile int16_t  g_line_start_speed = 1020;
 volatile int16_t  g_max_steer = 400;           /* 最大转向限制 (Steer PWM 限制) */
 volatile float    g_speed_drop_factor = 1.2f;  /* 转向大时速度降低系数 */
@@ -33,10 +33,10 @@ volatile float    g_speed_drop_factor = 1.2f;  /* 转向大时速度降低系数
 volatile float    g_gray_weights[GRAY_NUM] = {1.7f, 0.4f, -0.4f, -1.7f};
 
 volatile uint16_t g_entry_slow_ticks = 0;      /* 从白区切入黑线时的强制减速计数器 */
-volatile int16_t  g_entry_slow_speed = 300;     /* 切入黑线瞬间的基准慢速 */
+volatile int16_t  g_entry_slow_speed = 350;     /* 切入黑线瞬间的基准慢速 */
 volatile int16_t  g_entry_max_steer = 850;      /* 切入黑线瞬间的最大差速转向限制 */
-volatile uint16_t g_entry_hold_ticks = 15;       /* 强制不退出的“真空时间”/死区时间 (8 = 80ms) */
-volatile uint16_t g_entry_max_ticks = 50;       /* 抓线捕获期的最大超时时间 (40 = 400ms) */
+volatile uint16_t g_entry_hold_ticks = 25;       /* 强制不退出的“真空时间”/死区时间 (8 = 80ms) */
+volatile uint16_t g_entry_max_ticks = 60;       /* 抓线捕获期的最大超时时间 (40 = 400ms) */
 
 extern volatile LSM6DSV_Attitude_t g_imu_attitude;
 extern LSM6DSV_Handle_t lsm6dsv_dev;
