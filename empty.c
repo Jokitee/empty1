@@ -124,6 +124,11 @@ void Task2_Process(void)
         last_state = g_line_state;
         step++;
     }
+		
+		if(step == 2) {
+            g_yaw_ctrl.target_yaw = 180.0;
+            g_yaw_ctrl.locked = 2; // 预设目标角，不允许 SysTick 覆盖
+        }
     
     // 经历8次状态转换（4个黑线标记点各进出一次：B,C,D,A）
     if (step >= 4) {
@@ -146,6 +151,7 @@ void Task3_Process(void)
         last_state = g_line_state; // 初始化为开始时的实际状态，避免在起点误触发状态改变
         g_yaw_init = 1;
     }
+		
     
     if (g_line_state != last_state) {
         last_state = g_line_state;
@@ -153,7 +159,7 @@ void Task3_Process(void)
     }
 		
 		if(step == 2) {
-            g_yaw_ctrl.target_yaw = 180.0;
+            g_yaw_ctrl.target_yaw = -100.0;
             g_yaw_ctrl.locked = 2; // 预设目标角，不允许 SysTick 覆盖
         }
 		
@@ -187,7 +193,7 @@ void Task4_Process(void)
 		
 		switch(step){
 			case 2:
-				g_yaw_ctrl.target_yaw = 180.0;
+				g_yaw_ctrl.target_yaw = -100.0;
 				g_yaw_ctrl.locked = 2; // 预设目标角
 				break;
 			case 0:

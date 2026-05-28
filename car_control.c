@@ -11,7 +11,7 @@ Motor_t MotorB = {TIMG6, DL_TIMER_CC_0_INDEX, DL_TIMER_CC_1_INDEX};
 uint8_t gray_value[GRAY_NUM];
 
 /* 循迹转向PID */
-PID_t pid_line = {2.2f, 0.0f, 1.5f, 0, 0, 0, 0};
+PID_t pid_line = {2.2f, 0.0f, 1.0f, 0, 0, 0, 0};
 /* 陀螺仪 Yaw 偏航角控制 PID 及状态 */
 YawController_t g_yaw_ctrl = {
     .pid = {1.4f, 0.0f, 1.8f, 0, 0, 0, 0},
