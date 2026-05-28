@@ -3,6 +3,9 @@
 #include "uart_debug.h"
 #include <stdlib.h>
 
+// 偏航角控制极性翻转标志。如果发现小车不仅不纠偏反而加速偏离目标方向，请将此宏改为 -1.0f 
+#define YAW_PID_POLARITY (1.0f)
+
 /* TIMG0 and TIMG6 are TimerG which only have 2 channels (CC_0 and CC_1) */
 Motor_t MotorA = {TIMG0, DL_TIMER_CC_0_INDEX, DL_TIMER_CC_1_INDEX};
 Motor_t MotorB = {TIMG6, DL_TIMER_CC_0_INDEX, DL_TIMER_CC_1_INDEX};
@@ -27,6 +30,7 @@ volatile uint8_t  g_line_state = LINE_NONE;
 volatile uint8_t  g_running = 0;
 volatile int16_t  g_line_base_speed = 1050;
 volatile int16_t  g_line_start_speed = 1020;
+volatile int16_t  g_line_straight_speed = 1050; /* 闭环直跑航向锁定时的基础速度 */
 volatile int16_t  g_max_steer = 400;           /* 最大转向限制 (Steer PWM 限制) */
 volatile float    g_speed_drop_factor = 1.2f;  /* 转向大时速度降低系数 */
 /* 四路循迹传感器权重（偏移量量化值，正值表示偏左，负值表示偏右） */
@@ -234,6 +238,17 @@ void SysTick_Handler(void)
             else if (gray_value[3] == 1) g_entry_dir = -1.7f;
             else g_entry_dir = (g_line_pos > 0.0f) ? 1.7f : -1.7f;
 
+            // 特殊优化：在“8”字任务中，从圆弧内侧切入时，由于传感器物理排列与进弯角度，往往都是右侧模块先碰到。
+            // 此时如果盲目根据先碰线的右侧模块判定，在需要右转的弯道（D点）会误判为左转，导致冲出跑道。
+            // 因此，我们根据当前锁定的目标偏航角（target_yaw）来辅助决策切入方向。
+            if (g_running_mode == Task_3 || g_running_mode == Task_4) {
+                if (g_yaw_ctrl.target_yaw < -50.0f) {
+                    g_entry_dir = -1.7f;  // B->D 盲跑切入 D 点，此时需要右转
+                } else {
+                    g_entry_dir = 1.7f; // A->C 盲跑切入 C 点，此时需要左转
+                }
+            }
+
             // 重置循迹 PID 状态，消除以前累积的积分 and 微分残留，防止切入瞬间突变
             pid_line.integral = 0.0f;
             pid_line.last_err = 0.0f;
@@ -330,21 +345,25 @@ void SysTick_Handler(void)
                 g_yaw_ctrl.pid.err = 0.0f;
             } else if (g_yaw_ctrl.locked == 2) {
                 g_yaw_ctrl.locked = 1; // 转换为普通锁定状态，以便下一次出黑线时能正常工作
-                // 清零 PID 状态，确保平滑过渡（保留外部预设好的 target_yaw）
+                // 清零 PID 状态，并以当前偏差初始化 err / last_err 以消除进入瞬间的导数突变 (Derivative Kick)
                 g_yaw_ctrl.pid.integral = 0.0f;
-                g_yaw_ctrl.pid.last_err = 0.0f;
-                g_yaw_ctrl.pid.err = 0.0f;
+                float init_err = g_yaw_ctrl.target_yaw - g_imu_attitude.yaw;
+                while (init_err >  180.0f) init_err -= 360.0f;
+                while (init_err < -180.0f) init_err += 360.0f;
+                init_err *= YAW_PID_POLARITY;
+                g_yaw_ctrl.pid.err = init_err;
+                g_yaw_ctrl.pid.last_err = init_err;
             }
 
             int16_t steer = YawControl(g_yaw_ctrl.target_yaw, g_imu_attitude.yaw);
 
-            int16_t max_steer = g_line_base_speed / 3;
+            int16_t max_steer = g_line_straight_speed / 3;
             if (steer > max_steer) steer = max_steer;
             if (steer < -max_steer) steer = -max_steer;
             
             // 同样，如果在直道纠偏时偏差过大，也适当降低行驶速度
-            int16_t current_base_speed = g_line_base_speed - (int16_t)(abs(steer / 2) * g_speed_drop_factor);
-            int16_t min_speed = g_line_base_speed / 3;
+            int16_t current_base_speed = g_line_straight_speed - (int16_t)(abs(steer / 2) * g_speed_drop_factor);
+            int16_t min_speed = g_line_straight_speed / 3;
             if (current_base_speed < min_speed) {
                 current_base_speed = min_speed;
             }
@@ -404,9 +423,6 @@ void Car_Stop(void)
     Motor_Brake(&MotorB);
 }
 
-// 偏航角控制极性翻转标志。如果发现小车不仅不纠偏反而加速偏离目标方向，请将此宏改为 -1.0f 
-#define YAW_PID_POLARITY (1.0f)
-
 /**
  * @brief  偏航角 (Yaw) PID 控制器转向计算
  * @param  target_yaw  目标角度 (度，-180 ~ +180)
@@ -434,9 +450,15 @@ int16_t YawControl(float target_yaw, float current_yaw)
     /* 4. 计算 PID 输出 
        (为了兼容原有 PID 参数 kp=3.0 等的调参手感，原有逻辑中将角度放大了 100 倍，
         这里将最终乘积放大 100 倍，以保持对电机的控制输出增益等效) */
-    float out = (g_yaw_ctrl.pid.kp * g_yaw_ctrl.pid.err 
-               + g_yaw_ctrl.pid.ki * g_yaw_ctrl.pid.integral 
-               + g_yaw_ctrl.pid.kd * (g_yaw_ctrl.pid.err - g_yaw_ctrl.pid.last_err)) * 100.0f;
+    float p_term = g_yaw_ctrl.pid.kp * g_yaw_ctrl.pid.err * 100.0f;
+    // 限制比例项的最大贡献，防止大角度误差时比例项完全淹没微分项的阻尼（防止执行器饱和导致的晃动）
+    // 这里的限幅应该与 SysTick 里的 max_steer 匹配。max_steer = g_line_base_speed / 3 ≈ 340
+    if (p_term > 350.0f) p_term = 350.0f;
+    if (p_term < -350.0f) p_term = -350.0f;
+
+    float i_term = g_yaw_ctrl.pid.ki * g_yaw_ctrl.pid.integral * 100.0f;
+    float d_term = g_yaw_ctrl.pid.kd * (g_yaw_ctrl.pid.err - g_yaw_ctrl.pid.last_err) * 100.0f;
+    float out = p_term + i_term + d_term;
                
     /* 5. 记录上一次误差 */
     g_yaw_ctrl.pid.last_err = g_yaw_ctrl.pid.err;

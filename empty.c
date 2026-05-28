@@ -9,15 +9,6 @@ LSM6DSV_Handle_t lsm6dsv_dev;
 volatile bool g_imu_status = false;
 extern YawController_t g_yaw_ctrl;
 
-/* ========== 工作模式与状态变量 ========== */
-typedef enum {
-		Task_0 = 0,
-    Task_1,   		/* 模式 1：任务1 */
-    Task_2,       /* 模式 2：任务2 */
-    Task_3,       /* 模式 3：任务3 */
-    Task_4,       /* 模式 4：任务4 */
-    Task_MAX
-} TaskMode_t;
 
 volatile TaskMode_t g_selected_mode = Task_0;   /* 当前按键选中的工作模式 */
 volatile TaskMode_t g_running_mode  = Task_0;   /* 当前确认运行的工作模式 */
@@ -182,6 +173,7 @@ void Task4_Process(void)
     
     if (!g_yaw_init) {
         step = 0;
+        circle = 0; // 重置圈数计数，防止上一次运行残留的 4 圈值导致无法重新启动
         last_state = g_line_state; // 初始化为开始时的实际状态，避免在起点误触发状态改变
         g_yaw_init = 1;
     }

@@ -32,9 +32,21 @@ extern Motor_t MotorB;
 extern uint8_t gray_value[GRAY_NUM];
 
 typedef enum {
-		LINE_NONE	 = 0,		/* 全白，丢线 */
+    LINE_NONE    = 0,       /* 全白，丢线 */
     LINE_TRACK   /* 中间有黑线，循迹中 */
 } LineState_t;
+
+typedef enum {
+    Task_0 = 0,
+    Task_1,         /* 模式 1：任务1 */
+    Task_2,         /* 模式 2：任务2 */
+    Task_3,         /* 模式 3：任务3 */
+    Task_4,         /* 模式 4：任务4 */
+    Task_MAX
+} TaskMode_t;
+
+extern volatile TaskMode_t g_selected_mode;
+extern volatile TaskMode_t g_running_mode;
 
 /* ========== PID 控制结构体 ========== */
 typedef struct {
@@ -61,6 +73,7 @@ extern volatile float    g_line_pos;        /* 灰度计算得到的偏差值 (-
 extern volatile uint8_t  g_line_state;      /* 循迹状态 */
 extern volatile uint8_t  g_running;         /* 闭环运行标志位: 1=循迹运行, 0=开环直通/停止 */
 extern volatile int16_t  g_line_base_speed; /* 闭环循迹时的基础速度 (可由外部任务动态修改) */
+extern volatile int16_t  g_line_straight_speed; /* 闭环直跑航向锁定时的基础速度 */
 extern volatile int16_t  g_max_steer;        /* 循迹时的最大转向控制量 */
 extern volatile float    g_speed_drop_factor;/* 转向大时速度降低系数 */
 extern volatile float    g_gray_weights[GRAY_NUM]; /* 四路循迹传感器权重 */
